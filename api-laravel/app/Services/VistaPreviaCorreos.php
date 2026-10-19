@@ -51,7 +51,7 @@ class VistaPreviaCorreos
             $this->cita(['fecha_hora' => $this->fecha(9, '15:00')]), $esp));
         $r($g, 'Cita confirmada', 'Tutor', fn () => $citas->notificarCambioEstado($u, $m, $cita));
         $r($g, 'Cita cancelada', 'Tutor', fn () => $citas->notificarCambioEstado($u, $m, $this->cita(['estado' => 'Cancelada'])));
-        $r($g, 'Cita completada', 'Tutor', fn () => $citas->notificarCambioEstado($u, $m, $this->cita(['estado' => 'Completada'])));
+        $r($g, 'Atención realizada', 'Tutor', fn () => $citas->notificarCambioEstado($u, $m, $this->cita(['estado' => 'Completada'])));
 
         $g = 'Recordatorios';
         $r($g, 'Recordatorio de cita (el día antes)', 'Tutor', function () use ($recordatorios, $u, $m, $cita) {
@@ -80,15 +80,16 @@ class VistaPreviaCorreos
         $r($g, 'Ya tienes una cuenta', 'Tutor', fn () => $tokens->enviarCuentaExistente($u));
 
         $g = 'Para la clínica y el equipo';
+        $consulta = ['nombre' => 'Daniela Rojas', 'email' => 'daniela@ejemplo.cl', 'asunto' => 'Horario de sábado',
+            'mensaje' => "¿Atienden los sábados?\nLuna tiene una alergia en la piel."];
         $r($g, 'Nueva consulta desde el sitio', 'Clínica', fn () => [
-            'asunto' => 'Consulta desde el sitio: Horario de sábado',
-            'texto' => "Nombre: Daniela Rojas\nCorreo: daniela@ejemplo.cl\n\n¿Atienden los sábados?\nLuna tiene una alergia en la piel.",
-            'html' => ContactoController::htmlAviso(['nombre' => 'Daniela Rojas', 'email' => 'daniela@ejemplo.cl',
-                'asunto' => 'Horario de sábado', 'mensaje' => "¿Atienden los sábados?\nLuna tiene una alergia en la piel."]),
+            'asunto' => ContactoController::asuntoAviso($consulta),
+            'texto' => ContactoController::textoAviso($consulta),
+            'html' => ContactoController::htmlAviso($consulta),
         ]);
-        $r($g, 'Te agendaron una hora', 'Especialista', fn () => $citas->notificarEspecialistaReservaCreada($esp, $u, $m, $citaAbono));
-        $r($g, 'Una hora tuya cambió de fecha', 'Especialista', fn () => $citas->notificarEspecialistaReagendada($esp, $u, $m, $cita));
-        $r($g, 'Se canceló una hora tuya', 'Especialista', fn () => $citas->notificarEspecialistaCancelada($esp, $u, $m,
+        $r($g, 'Nueva hora en tu agenda', 'Especialista', fn () => $citas->notificarEspecialistaReservaCreada($esp, $u, $m, $citaAbono));
+        $r($g, 'Una de tus horas cambió', 'Especialista', fn () => $citas->notificarEspecialistaReagendada($esp, $u, $m, $cita));
+        $r($g, 'Se canceló una hora', 'Especialista', fn () => $citas->notificarEspecialistaCancelada($esp, $u, $m,
             $this->cita(['estado' => 'Cancelada'])));
 
         return $s;

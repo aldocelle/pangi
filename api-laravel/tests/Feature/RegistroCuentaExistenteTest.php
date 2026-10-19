@@ -71,7 +71,7 @@ class RegistroCuentaExistenteTest extends TestCase
         $this->assertCount(1, $this->correo->enviados);
         $m = $this->correo->enviados[0];
         $this->assertSame('daniela@x.cl', $m['destinatario']);
-        $this->assertSame('Ya tienes una cuenta — PANGI', $m['asunto']);
+        $this->assertSame('Ya tienes una cuenta en PANGI', $m['asunto']);
         $this->assertStringContainsString('Hola Daniela', $m['cuerpoTexto']);
         $this->assertStringContainsString('https://reservas.ejemplo.cl/login', $m['cuerpoHtml']);
     }

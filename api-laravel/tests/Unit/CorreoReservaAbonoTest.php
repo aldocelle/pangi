@@ -60,20 +60,20 @@ class CorreoReservaAbonoTest extends TestCase
                             'pago_modalidad_requerida' => 'abono']);
 
         $this->assertStringContainsString('Tu hora está reservada', $m['html']);
-        $this->assertStringNotContainsString('Tu visita está confirmada', $m['html']);
+        $this->assertStringNotContainsString('Tu hora está confirmada', $m['html']);
         $this->assertStringContainsString('https://pruebas.example.cl/pago/cita-1', $m['html']);
         $this->assertStringContainsString('27.000', $m['html']);
         $this->assertStringContainsString('15 minutos', $m['html']);
 
         $this->assertStringContainsString('Reservamos tu hora', $m['texto']);
-        $this->assertStringNotContainsString('Tu visita está confirmada', $m['texto']);
+        $this->assertStringNotContainsString('Tu hora está confirmada', $m['texto']);
     }
 
     public function test_sin_cobro_en_linea_sigue_diciendo_confirmada_y_sin_enlace(): void
     {
         $m = $this->enviar([]);
 
-        $this->assertStringContainsString('Tu visita está confirmada ✓', $m['html']);
+        $this->assertStringContainsString('Tu hora está confirmada ✓', $m['html']);
         $this->assertStringNotContainsString('/pago/', $m['html']);
     }
 
@@ -81,7 +81,7 @@ class CorreoReservaAbonoTest extends TestCase
     {
         $m = $this->enviar(['monto_abono_clp' => 27000, 'payment_status' => 'approved']);
 
-        $this->assertStringContainsString('Tu visita está confirmada ✓', $m['html']);
+        $this->assertStringContainsString('Tu hora está confirmada ✓', $m['html']);
         $this->assertStringNotContainsString('/pago/', $m['html']);
     }
 
@@ -91,6 +91,6 @@ class CorreoReservaAbonoTest extends TestCase
         // asunto es el mismo que el del comprobante de pago.
         $m = $this->enviar(['monto_abono_clp' => 27000, 'payment_status' => 'pending']);
 
-        $this->assertStringStartsWith('Reserva confirmada — PANGI | Pelusa — ', $m['asunto']);
+        $this->assertSame('Reserva confirmada en PANGI: Pelusa, jueves 17 de septiembre, 11:00', $m['asunto']);
     }
 }

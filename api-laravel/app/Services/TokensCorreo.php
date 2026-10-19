@@ -139,35 +139,35 @@ class TokensCorreo
     {
         $enlace = config('emr.portal_reservas_url') . '/confirmar?token=' . rawurlencode($token);
         $nombre = explode(' ', (string) ($usuario->nombre ?? ''))[0] ?: 'hola';
+        $marca = Marca::nombre();
 
         if ($esReclamo) {
-            $intro = 'Ya teníamos tus datos en la ficha de la clínica. Para activar tu acceso '
-                . 'al portal y ver la información de tus mascotas, confirma que este correo es tuyo:';
-            $asunto = 'Activa tu acceso al portal — ' . Marca::nombre();
-            $introHtml = 'Ya teníamos tus datos en la ficha de la clínica. Para activar tu acceso al portal '
-                . 'y ver la información de tus mascotas, confirma que este correo es tuyo:';
+            $titulo = 'Activa tu acceso al portal';
+            $intro = 'Ya teníamos tus datos en la ficha de la clínica. Confirma que este correo es tuyo '
+                . 'para activar tu acceso al portal y ver la información de tus mascotas.';
+            $asunto = "Activa tu acceso al portal de {$marca}";
+            $boton = 'Activar mi acceso';
         } else {
-            $intro = $introHtml = 'Gracias por crear tu cuenta en el portal de ' . Marca::nombre() . '. '
-                . 'Solo falta confirmar que este correo es tuyo:';
-            $asunto = 'Confirma tu correo — ' . Marca::nombre();
+            $titulo = 'Confirma tu correo';
+            $intro = "Gracias por crear tu cuenta en el portal de {$marca}. Confirma que este correo es tuyo "
+                . 'y podrás reservar horas y ver la información de tus mascotas.';
+            $asunto = "Confirma tu correo en {$marca}";
+            $boton = 'Confirmar mi correo';
         }
 
         $h = self::VALIDEZ_HORAS;
-        $texto = "Hola {$nombre},\n\n{$intro}\n\n{$enlace}\n\n"
-            . "El enlace vence en {$h} horas.\n"
-            . "Si no fuiste tú quien pidió esto, ignora este correo: sin este clic no se "
-            . "activa ningún acceso a la cuenta.\n\n"
-            . Marca::nombre();
+        $pie = "El enlace vence en {$h} horas. Si no fuiste tú, ignora este correo: "
+            . 'la cuenta no se activa sin esta confirmación.';
+        $texto = "Hola {$nombre},\n\n{$intro}\n\n{$enlace}\n\n{$pie}\n\n{$marca}";
 
         $e = fn ($v) => Plantilla::e($v);
         $html = Plantilla::pagina(
-            'Confirma tu correo',
+            $titulo,
             'Hola ' . $e($nombre),
-            Plantilla::parrafo($e($introHtml))
-            . Plantilla::boton($e($enlace), 'Confirmar mi correo')
-            . Plantilla::enlaceAlterno($enlace, 'O copia este enlace:'),
-            "El enlace vence en {$h} horas. Si no fuiste tú quien pidió esto, ignora este correo: "
-            . 'sin este clic no se activa ningún acceso a la cuenta.'
+            Plantilla::parrafo($e($intro))
+            . Plantilla::boton($e($enlace), $boton)
+            . Plantilla::enlaceAlterno($enlace),
+            str_replace("{$h} horas", "<strong>{$h} horas</strong>", $e($pie))
         );
 
         return $this->correo->enviar($usuario->email, $asunto, $texto, $html);
@@ -184,29 +184,25 @@ class TokensCorreo
         $enlace = config('emr.portal_reservas_url') . '/restablecer?token=' . rawurlencode($token);
         $nombre = explode(' ', (string) ($usuario->nombre ?? ''))[0] ?: 'hola';
         $h = self::VALIDEZ_RESET_HORAS;
+        $marca = Marca::nombre();
 
-        $texto = "Hola {$nombre},\n\n"
-            . 'Recibimos una solicitud para restablecer tu contraseña en el portal de '
-            . Marca::nombre() . ". Si fuiste tú, elige una nueva clave aquí:\n\n"
-            . "{$enlace}\n\n"
-            . "El enlace vence en {$h} hora.\n"
-            . "Si no fuiste tú, ignora este correo: tu contraseña actual sigue funcionando.\n\n"
-            . Marca::nombre();
+        $intro = "Recibimos una solicitud para cambiar la contraseña de tu cuenta en el portal de {$marca}. "
+            . 'Si fuiste tú, elige una nueva.';
+        $pie = "El enlace vence en {$h} hora. Si no fuiste tú, ignora este correo: tu contraseña actual "
+            . 'sigue funcionando.';
+        $texto = "Hola {$nombre},\n\n{$intro}\n\n{$enlace}\n\n{$pie}\n\n{$marca}";
 
         $e = fn ($v) => Plantilla::e($v);
         $html = Plantilla::pagina(
             'Restablece tu contraseña',
             'Hola ' . $e($nombre),
-            Plantilla::parrafo('Recibimos una solicitud para restablecer tu contraseña en el portal de '
-                . Marca::nombre() . '. Si fuiste tú, elige una nueva clave aquí:')
+            Plantilla::parrafo($e($intro))
             . Plantilla::boton($e($enlace), 'Elegir nueva contraseña')
-            . Plantilla::enlaceAlterno($enlace, 'O copia este enlace:'),
-            "El enlace vence en {$h} hora. "
-            . 'Si no fuiste tú, ignora este correo: tu contraseña actual sigue funcionando.'
+            . Plantilla::enlaceAlterno($enlace),
+            str_replace("{$h} hora", "<strong>{$h} hora</strong>", $e($pie))
         );
 
-        return $this->correo->enviar($usuario->email, 'Restablece tu contraseña — ' . Marca::nombre(),
-            $texto, $html);
+        return $this->correo->enviar($usuario->email, "Restablece tu contraseña de {$marca}", $texto, $html);
     }
 
     /**
@@ -219,24 +215,23 @@ class TokensCorreo
     {
         $primer = explode(' ', (string) ($usuario->nombre ?? ''))[0] ?? '';
         $enlaceLogin = rtrim((string) config('emr.portal_reservas_url'), '/') . '/login';
+        $marca = Marca::nombre();
+
+        $intro = "Alguien intentó crear una cuenta nueva en el portal de {$marca} con este correo, pero ya "
+            . 'tienes una. Si fuiste tú, entra con tu contraseña. Si no la recuerdas, usa «¿Olvidaste tu '
+            . 'contraseña?» en la pantalla de ingreso.';
+        $pie = 'Si no fuiste tú, ignora este correo: tu cuenta no tuvo ningún cambio.';
 
         return $this->correo->enviar(
             $usuario->email,
-            'Ya tienes una cuenta — ' . Marca::nombre(),
-            "Hola {$primer},\n\n"
-            . 'Alguien intentó crear una cuenta en el portal de ' . Marca::nombre() . ' '
-            . "con este correo, pero ya tienes una. Si fuiste tú, inicia sesión o usa "
-            . "'¿Olvidaste tu contraseña?' desde el portal:\n{$enlaceLogin}\n\n"
-            . 'Si no fuiste tú, ignora este correo: '
-            . 'tu cuenta sigue igual, no se hizo ningún cambio.',
+            "Ya tienes una cuenta en {$marca}",
+            "Hola {$primer},\n\n{$intro}\n\n{$enlaceLogin}\n\n{$pie}\n\n{$marca}",
             Plantilla::pagina(
                 'Ya tienes una cuenta',
                 'Hola ' . Plantilla::e($primer),
-                Plantilla::parrafo('Alguien intentó crear una cuenta en el portal de '
-                    . Marca::nombre() . ' con este correo, pero ya tienes una. Si fuiste tú, inicia sesión '
-                    . 'o usa «¿Olvidaste tu contraseña?» desde el portal:')
-                . Plantilla::boton(Plantilla::e($enlaceLogin), 'Iniciar sesión'),
-                'Si no fuiste tú, ignora este correo: tu cuenta sigue igual, no se hizo ningún cambio.'
+                Plantilla::parrafo(Plantilla::e($intro))
+                . Plantilla::boton(Plantilla::e($enlaceLogin), 'Entrar al portal'),
+                Plantilla::e($pie)
             )
         );
     }

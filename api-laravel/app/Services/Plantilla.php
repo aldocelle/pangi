@@ -32,10 +32,13 @@ namespace App\Services;
  *        · `subtitulo()` + `bloqueQueEsperar()` para listas de indicaciones.
  *   4. pie          — `pagina($pie)`: la letra chica (vencimiento, «si no fuiste
  *                     tú…», cómo contactarnos). Una frase, sin repetir el cuerpo.
- *   5. firma        — la pone `pagina()`; no se escribe a mano.
+ *   5. firma        — la pone `pagina()`; no se escribe a mano: el pie
+ *                     institucional (nombre, dirección, WhatsApp, sitio).
+ *
+ * Arriba de todo, también puesta por `pagina()`, va la cabecera con el logo.
  *
  * Íconos de las filas, para que signifiquen lo mismo en todos los correos:
- * 🐾 paciente · 🩺 servicio/motivo · 📅 fecha · 📍 lugar · 👤 persona ·
+ * 🐾 paciente · 🩺 servicio/motivo · 🗓️ fecha (`ICONO_FECHA`) · 📍 lugar · 👤 persona ·
  * ✉️ correo · 💲 dinero · 🪪 RUT · 🔖 código · 💬 mensaje.
  *
  * Todo texto que venga de un formulario o de la base va por `e()`: el correo
@@ -55,6 +58,14 @@ class Plantilla
     public const LINE = '#dde5ed';
     public const ACENTO_SUAVE = '#fbeee6';
     public const ACENTO = '#e07a3f';
+
+    /**
+     * La fecha va con 🗓️ y no con 📅: en iPhone 📅 se dibuja como una hoja
+     * de calendario que dice «JUL 17», y al lado de «Lunes 26 de octubre»
+     * parece otra fecha. 🗓️ es un calendario sin número. Lleva el selector de
+     * variante (U+FE0F) para que salga en color y no como símbolo de texto.
+     */
+    public const ICONO_FECHA = "\u{1F5D3}\u{FE0F}";
 
     public const R_LG = '22px';
     public const R_MD = '14px';
@@ -100,7 +111,7 @@ class Plantilla
         return "<p style='margin:0 0 14px;font-size:{$tam};line-height:1.5;color:{$color}'>{$html}</p>";
     }
 
-    /** El título de una sección dentro del cuerpo («Qué esperar», «¿Necesitas cambiar la hora?»). */
+    /** El título de una sección dentro del cuerpo («Para tu visita», «¿Necesitas cambiar la hora?»). */
     public static function subtitulo(string $texto): string
     {
         return "<p style='margin:0 0 8px;font-size:15px;font-weight:600;color:" . self::INK . "'>"
@@ -123,7 +134,7 @@ class Plantilla
      * Bajo un `boton()`: el enlace en claro, para quien su cliente de correo no
      * deja hacer clic en el botón o lo quiere copiar a otro navegador.
      */
-    public static function enlaceAlterno(string $enlace, string $intro = 'Si el botón no funciona, copia este enlace:'): string
+    public static function enlaceAlterno(string $enlace, string $intro = 'Si el botón no funciona, copia este enlace en tu navegador:'): string
     {
         return "<p style='margin:0 0 6px;font-size:12px;line-height:1.5;color:" . self::INK_SOFT
             . ";word-break:break-all'>{$intro} " . self::e($enlace) . '</p>';
@@ -187,10 +198,10 @@ class Plantilla
             . "{$texto}</a></td></tr></table>";
     }
 
-    /** El recuadro «Qué esperar», con sus filas ya armadas. */
+    /** El recuadro «Para tu visita» (las indicaciones), con sus filas ya armadas. */
     public static function bloqueQueEsperar(string $items): string
     {
-        return self::subtitulo('Qué esperar')
+        return self::subtitulo('Para tu visita')
             . "<table role='presentation' cellpadding='0' cellspacing='0' border='0' "
             . "style='width:100%;max-width:480px;border-collapse:separate;"
             . 'border:1px solid ' . self::LINE . ';border-radius:' . self::R_MD . ';'
@@ -202,8 +213,71 @@ class Plantilla
             . '</table></td></tr></table>';
     }
 
+    /** Lee config sin romper un test unitario puro, que no levanta la aplicación. */
+    private static function config(string $clave): string
+    {
+        try {
+            return trim((string) config($clave));
+        } catch (\Throwable) {
+            return '';
+        }
+    }
+
     /**
-     * El `.panel`: la tarjeta blanca redondeada sobre el fondo azul claro.
+     * La cabecera institucional: el logo de la clínica, centrado, sobre el
+     * título. Va en TODOS los correos, también en los internos, para que se
+     * reconozcan como de la clínica antes de leer nada.
+     *
+     * `width` y `height` como atributos y no solo en el estilo: Outlook ignora
+     * el CSS de las imágenes y, sin ellos, dibuja el PNG a su tamaño real
+     * (256 px, el doble, para pantallas retina). Sin logo configurado, el
+     * nombre en texto ocupa el mismo lugar.
+     */
+    private static function cabecera(): string
+    {
+        $nombre = self::e(Marca::nombre());
+        $logo = self::config('emr.correo_logo_url');
+        if ($logo === '') {
+            return "<p style='margin:0 0 18px;font-family:" . self::FONT_TIT . ';font-size:20px;'
+                . 'font-weight:700;letter-spacing:0.06em;color:' . self::INK . ";text-align:center'>{$nombre}</p>";
+        }
+
+        return "<table role='presentation' cellpadding='0' cellspacing='0' border='0' style='width:100%'>"
+            . "<tr><td align='center' style='padding:0 0 16px'>"
+            . "<img src='" . self::e($logo) . "' width='128' height='128' alt='{$nombre}' "
+            . "style='display:block;width:128px;height:128px;border:0;outline:none;text-decoration:none'>"
+            . '</td></tr></table>';
+    }
+
+    /**
+     * El pie institucional: el nombre (o el texto que la clínica eligió en
+     * Ajustes → Correos), la dirección, el WhatsApp y el sitio. Es lo que
+     * permite responder o llegar sin buscar los datos en otra parte.
+     */
+    private static function pieInstitucional(string $pieTexto): string
+    {
+        $direccion = self::config('emr.clinica_direccion') ?: CitasEmail::DIRECCION_CLINICA;
+        $telefono = self::config('emr.clinica_telefono');
+        $sitio = self::config('emr.sitio_url');
+
+        $contacto = array_filter([
+            $telefono !== '' ? 'WhatsApp ' . self::e($telefono) : '',
+            $sitio !== ''
+                ? "<a href='" . self::e($sitio) . "' style='color:" . self::INK . ";text-decoration:underline'>"
+                    . self::e(preg_replace('#^https?://(www\.)?#', '', $sitio)) . '</a>'
+                : '',
+        ]);
+
+        return "<p style='margin:24px 0 0;padding-top:18px;border-top:1px solid " . self::LINE . ';'
+            . 'font-family:' . self::FONT_TIT . ';font-size:14px;font-weight:600;color:' . self::INK . ';'
+            . "text-align:center'>{$pieTexto}</p>"
+            . "<p style='margin:4px 0 0;font-size:12px;line-height:1.6;color:" . self::INK_SOFT . ";text-align:center'>"
+            . self::e($direccion) . ($contacto ? '<br>' . implode(' · ', $contacto) : '') . '</p>';
+    }
+
+    /**
+     * El `.panel`: la tarjeta blanca redondeada sobre el fondo azul claro,
+     * con la cabecera del logo arriba y el pie institucional abajo.
      *
      * `titulo` y `saludo` ya vienen escapados por quien llama —el nombre del
      * tutor sale de un formulario público—; `cuerpo` es HTML armado acá.
@@ -227,14 +301,14 @@ class Plantilla
             . 'background:' . self::SURFACE . ';border:1px solid ' . self::LINE . ';'
             . 'border-radius:' . self::R_LG . "'>"
             . "<tr><td style='padding:28px 24px'>"
+            . self::cabecera()
             . "<h1 style='margin:0 0 4px;font-size:21px;line-height:1.3;color:" . self::INK . ';'
             . 'font-family:' . self::FONT_TIT . ";font-weight:600;text-align:center'>{$titulo}</h1>"
             . "<p style='margin:0 0 20px;font-size:15px;color:" . self::INK_SOFT . ';'
             . "text-align:center'>{$saludo}</p>"
             . $cuerpo
             . $bloquePie
-            . "<p style='margin:20px 0 0;padding-top:16px;border-top:1px solid " . self::LINE . ';'
-            . 'font-size:13px;color:' . self::INK_SOFT . ";text-align:center'>{$pieTexto}</p>"
+            . self::pieInstitucional($pieTexto)
             . '</td></tr></table></div>';
     }
 }

@@ -50,7 +50,8 @@ class CorreosPlantillaEstandarTest extends TestCase
         $this->assertNotNull($html, 'el correo salió solo en texto plano');
         $this->assertStringContainsString('border-radius:' . Plantilla::R_LG, $html, 'no pasa por Plantilla::pagina()');
         $this->assertMatchesRegularExpression('#<h1[^>]*>' . preg_quote($titulo, '#') . '</h1>#u', $html);
-        $this->assertStringEndsWith('PANGI</p></td></tr></table></div>', $html);
+        // Pie institucional: el nombre y, debajo, dirección y contacto.
+        $this->assertMatchesRegularExpression("#text-align:center'>PANGI</p><p [^>]*>[^<]+<br>WhatsApp [^<]+</p></td></tr></table></div>$#u", $html);
         $this->assertStringNotContainsString('font-family:sans-serif', $html, 'quedó HTML suelto');
     }
 
@@ -69,7 +70,11 @@ class CorreosPlantillaEstandarTest extends TestCase
             $this->cita(), (object) ['nombre' => 'Dr. Tigre']);
 
         $this->assertEsPlantillaEstandar($this->enviado['html'], 'Tu cita cambió de hora');
-        $this->assertStringContainsString('Atiende Dr. Tigre', $this->enviado['html']);
+        // La cabecera es el servicio; quien atiende va en su propia fila, debajo.
+        $this->assertStringNotContainsString('Atiende', $this->enviado['html']);
+        $this->assertMatchesRegularExpression("#font-weight:600'>Consulta de prueba</td>#u", $this->enviado['html']);
+        $this->assertMatchesRegularExpression('#Consulta de prueba</td></tr><tr>.*?>👤</td>.*?>Dr\. Tigre</td>#su', $this->enviado['html']);
+        $this->assertStringContainsString('Especialista: Dr. Tigre', $this->enviado['texto']);
         $this->assertStringContainsString(CitasEmail::DIRECCION_CLINICA, $this->enviado['html']);
         $this->assertStringContainsString(CitasEmail::DIRECCION_CLINICA, $this->enviado['texto']);
     }
@@ -103,12 +108,30 @@ class CorreosPlantillaEstandarTest extends TestCase
 
         app(CitasEmail::class)->notificarCambioEstado($usuario, $mascota, $this->cita(['estado' => 'Cancelada']));
         $this->assertEsPlantillaEstandar($this->enviado['html'], 'Tu cita fue cancelada');
-        $this->assertStringNotContainsString(CitasEmail::DIRECCION_CLINICA, $this->enviado['html']);
-        $this->assertStringStartsWith('Tu cita fue cancelada: Rocco', $this->enviado['asunto']);
+        // La dirección sigue en el pie institucional; lo que no va es la fila del lugar.
+        $this->assertStringNotContainsString('📍', $this->enviado['html']);
+        $this->assertStringNotContainsString('Lugar:', $this->enviado['texto']);
+        $this->assertStringContainsString('Reservar otra hora', $this->enviado['html']);
+        $this->assertSame('Cita cancelada: Rocco, jueves 8 de octubre, 12:30', $this->enviado['asunto']);
 
         app(CitasEmail::class)->notificarCambioEstado($usuario, $mascota, $this->cita(['estado' => 'Confirmada']));
         $this->assertEsPlantillaEstandar($this->enviado['html'], 'Tu cita fue confirmada ✓');
-        $this->assertStringContainsString(CitasEmail::DIRECCION_CLINICA, $this->enviado['html']);
+        $this->assertStringContainsString('📍', $this->enviado['html']);
+        $this->assertStringContainsString('Lugar: ' . CitasEmail::DIRECCION_CLINICA, $this->enviado['texto']);
+    }
+
+    public function test_la_hora_va_en_24_horas_y_la_fecha_lleva_un_icono_sin_dia(): void
+    {
+        app(CitasEmail::class)->notificarCitaReagendada(
+            (object) ['nombre' => 'Daniel', 'email' => 'd@x.cl'], (object) ['nombre' => 'Rocco'],
+            $this->cita(['fecha_hora' => '2026-10-08 17:30:00']), null);
+
+        $this->assertSame('Nueva hora para Rocco: jueves 8 de octubre, 17:30', $this->enviado['asunto']);
+        $this->assertStringContainsString('Jueves 8 de octubre, 17:30', $this->enviado['texto']);
+        $this->assertDoesNotMatchRegularExpression('/\b(AM|PM)\b/', $this->enviado['texto'] . $this->enviado['html']);
+        // 📅 en iPhone dice «JUL 17» y se lee como otra fecha.
+        $this->assertStringNotContainsString('📅', $this->enviado['html']);
+        $this->assertStringContainsString(Plantilla::ICONO_FECHA, $this->enviado['html']);
     }
 
     public function test_el_nombre_que_viene_del_formulario_sale_escapado(): void
@@ -129,7 +152,8 @@ class CorreosPlantillaEstandarTest extends TestCase
         $this->assertEsPlantillaEstandar($html, 'Restablece tu contraseña');
         $this->assertStringContainsString("href='https://pruebas.example.cl/restablecer?token=tok'", $html);
         $this->assertStringContainsString('Elegir nueva contraseña', $html);
-        $this->assertStringContainsString('El enlace vence en 1 hora.', $html);
+        $this->assertStringContainsString('El enlace vence en <strong>1 hora</strong>.', $html);
+        $this->assertStringContainsString('El enlace vence en 1 hora.', $this->enviado['texto']);
     }
 
     public function test_confirmar_correo_y_activar_acceso_usan_la_plantilla(): void
@@ -164,9 +188,9 @@ class CorreosPlantillaEstandarTest extends TestCase
     {
         $this->assertSame('&lt;a&gt;&quot;x&quot;', Plantilla::e('<a>"x"'));
         $this->assertStringContainsString('&lt;i&gt;', Plantilla::enlaceAlterno('<i>'));
-        // `bloqueQueEsperar` ahora usa `subtitulo`: su salida no puede haber cambiado.
+        // `bloqueQueEsperar` usa `subtitulo`: mismo estilo que los demás subtítulos.
         $this->assertStringStartsWith(
-            "<p style='margin:0 0 8px;font-size:15px;font-weight:600;color:#26326e'>Qué esperar</p><table",
+            "<p style='margin:0 0 8px;font-size:15px;font-weight:600;color:#26326e'>Para tu visita</p><table",
             Plantilla::bloqueQueEsperar(''));
     }
 }

@@ -146,6 +146,8 @@ SERVICE_API_KEY=%s
 FICHAJE_DEVICE_TOKEN=%s
 
 PORTAL_RESERVAS_URL=$reservas
+# El sitio: de acá sale el logo de los correos ($sitio/correo-logo.png).
+SITIO_URL=$sitio
 ORIGENES_PRODUCCION=$origenes
 
 # Demo: nada sale solo, sin IA ni reCAPTCHA, y el abono se paga simulado.

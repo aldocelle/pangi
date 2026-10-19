@@ -114,8 +114,8 @@ class ContactoController extends Controller
         if ($avisar !== '') {
             $this->correo->enviar(
                 $avisar,
-                'Consulta desde el sitio: ' . (trim($datos['asunto'] ?? '') ?: trim($datos['nombre'])),
-                "Nombre: {$datos['nombre']}\nCorreo: {$datos['email']}\n\n{$datos['mensaje']}",
+                self::asuntoAviso($datos),
+                self::textoAviso($datos),
                 self::htmlAviso($datos),
             );
         }
@@ -123,6 +123,32 @@ class ContactoController extends Controller
         return response()->json([
             'mensaje' => 'Recibimos tu consulta. Te responderemos dentro del horario de atención.',
         ], 201);
+    }
+
+    /**
+     * Asunto y texto del aviso. Viven acá, junto al HTML, para que la vista
+     * previa de Ajustes → Correos muestre lo mismo que se envía.
+     *
+     * El nombre va en el asunto: la bandeja de la clínica se lee por quién
+     * escribió, y «Consulta desde el sitio» repetido no dice nada.
+     */
+    public static function asuntoAviso(array $datos): string
+    {
+        $tema = trim($datos['asunto'] ?? '');
+
+        return 'Consulta web de ' . trim($datos['nombre']) . ($tema !== '' ? ": {$tema}" : '');
+    }
+
+    public static function textoAviso(array $datos): string
+    {
+        $correo = Str::lower(trim($datos['email']));
+
+        return "Llegó una consulta por el formulario de contacto del sitio.\n\n"
+            . 'Nombre: ' . trim($datos['nombre']) . "\n"
+            . "Correo: {$correo}\n"
+            . (trim($datos['asunto'] ?? '') !== '' ? 'Asunto: ' . trim($datos['asunto']) . "\n" : '')
+            . "\n" . trim($datos['mensaje']) . "\n\n"
+            . "Para responder, escríbele a {$correo}. La consulta también queda en el panel, en Consultas web.";
     }
 
     /**
@@ -148,8 +174,9 @@ class ContactoController extends Controller
             'Llegó por el formulario de contacto.',
             \App\Services\Plantilla::tarjeta('Quién escribe', $filas)
             . \App\Services\Plantilla::tarjeta('Mensaje',
-                \App\Services\Plantilla::fila('💬', nl2br($e(trim($datos['mensaje']))))),
-            'También queda en el panel, en Consultas web.'
+                \App\Services\Plantilla::fila('💬', nl2br($e(trim($datos['mensaje'])))))
+            . \App\Services\Plantilla::boton("mailto:{$correo}", 'Responder a ' . $e(trim($datos['nombre']))),
+            'La consulta también queda en el panel, en Consultas web.'
         );
     }
 

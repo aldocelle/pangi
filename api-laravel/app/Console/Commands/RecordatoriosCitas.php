@@ -246,14 +246,20 @@ class RecordatoriosCitas extends TareaDeFondo
         $enlace = rtrim(config('emr.portal_reservas_url'), '/') . '/citas';
         $servicio = $cita->servicio ?: '-';
         $telefono = config('emr.clinica_telefono');
-        $asunto = "Recordatorio: cita de {$mascota->nombre} {$cuando} — {$fecha}";
+        // El lugar también: el aviso de 2 horas o de 15 minutos es el que se
+        // abre camino a la clínica, y antes no decía adónde ir.
+        $lugar = $this->emails->lugar($cita);
+        $asunto = "Recordatorio: cita de {$mascota->nombre} {$cuando} ("
+            . $this->emails->fechaLegible($cita->fecha_hora, false) . ')';
+        $sinPortal = "Si no puedes entrar al portal, escríbenos por WhatsApp al {$telefono} y la cambiamos por ti.";
 
         $texto = "Hola {$usuario->nombre},\n\n"
             . "Te recordamos que la cita de {$mascota->nombre} en " . \App\Services\Marca::nombre() . " es {$cuando}:\n"
             . "  Servicio: {$servicio}\n"
-            . "  Fecha: {$fecha}\n\n"
-            . "¿Necesitas cambiar la hora? Puedes reagendarla aquí:\n{$enlace}\n\n"
-            . "Si no tienes cuenta, escríbenos por WhatsApp al {$telefono} y lo vemos contigo.\n\n"
+            . "  Fecha: {$fecha}\n"
+            . "  Lugar: {$lugar}\n\n"
+            . "¿Necesitas cambiar la hora? Hazlo desde «Mis citas»:\n{$enlace}\n\n"
+            . "{$sinPortal}\n\n"
             . \App\Services\Marca::nombre();
 
         // Escapado: `usuario.nombre`, `mascota.nombre` y `cita.servicio` vienen
@@ -278,10 +284,11 @@ class RecordatoriosCitas extends TareaDeFondo
                 'Detalle de tu reserva',
                 Plantilla::fila('🐾', "<strong>{$e($mascota->nombre)}</strong>")
                 . Plantilla::fila('🩺', $e($servicio))
-                . Plantilla::fila('📅', $e($fecha)),
+                . Plantilla::fila(Plantilla::ICONO_FECHA, "<strong>{$e($fecha)}</strong>")
+                . Plantilla::fila('📍', $e($lugar)),
             )
             . Plantilla::bloqueReagendar($enlace)
-            . Plantilla::parrafo("¿No tienes cuenta? Escríbenos por WhatsApp al {$e($telefono)} y lo vemos contigo.", true)
+            . Plantilla::parrafo(str_replace($e($telefono), "<strong>{$e($telefono)}</strong>", $e($sinPortal)), true)
             . Plantilla::enlaceAlterno($enlace),
         );
 

@@ -24,9 +24,9 @@ class CitasEmail
      * ya habían quedado distintas entre sí.
      */
     public const QUE_ESPERAR = [
-        'Asiste puntual.',
-        'Recuerda traer carnet sanitario e historial médico y recetas anteriores.',
-        'Contamos con estacionamiento público a pasos de la clínica.',
+        'Llega puntual a tu hora.',
+        'Trae el carnet sanitario, el historial médico y las recetas anteriores, si los tienes.',
+        'Hay estacionamiento público a pasos de la clínica.',
     ];
 
     private const DIAS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
@@ -41,27 +41,102 @@ class CitasEmail
     }
 
     /**
-     * «Sábado 25 de julio, 11:00 AM», en español y **sin depender del locale
+     * «Sábado 25 de julio, 17:30», en español y **sin depender del locale
      * del sistema**.
      *
      * No se usa el formateo localizado de Carbon por lo mismo que Python no usa
      * `strftime("%A")`: el servidor no tiene locale español instalado y la
      * fecha salía medio en inglés — «Monday 24 de august» (§9.7). Las dos
      * listas son la única fuente.
+     *
+     * La hora va en 24 h, como la escribe la clínica y como sale en WhatsApp
+     * (`HorariosOfrecidos::legible`). Era «5:30 PM», herencia del port de
+     * Python, y una tutora la leyó en el correo de su reserva (oct-2026).
+     *
+     * `$mayuscula` en false es para usarla dentro de una frase o de un asunto:
+     * «Luna, lunes 26 de octubre». En una fila del detalle va al comienzo y
+     * lleva mayúscula.
      */
-    public function fechaLegible(string $fechaHora): string
+    public function fechaLegible(string $fechaHora, bool $mayuscula = true): string
     {
         $dt = CarbonImmutable::parse($fechaHora);
         // `dayOfWeekIso` va 1..7 desde el lunes, igual que `weekday()` de
         // Python va 0..6 desde el lunes.
         $dia = self::DIAS[$dt->dayOfWeekIso - 1];
         $mes = self::MESES[$dt->month - 1];
-        // `ltrim` del cero inicial: Python hace `.lstrip("0")` sobre "%I:%M %p",
-        // así que las 09:00 salen «9:00 AM» y no «09:00 AM».
-        $hora12 = ltrim($dt->format('h:i A'), '0');
+        if ($mayuscula) {
+            $dia = mb_convert_case(mb_substr($dia, 0, 1), MB_CASE_UPPER) . mb_substr($dia, 1);
+        }
 
-        return mb_convert_case(mb_substr($dia, 0, 1), MB_CASE_UPPER) . mb_substr($dia, 1)
-            . " {$dt->day} de {$mes}, {$hora12}";
+        return "{$dia} {$dt->day} de {$mes}, " . $dt->format('H:i');
+    }
+
+    /**
+     * Cómo escribirnos, para cerrar un correo con algo que se pueda hacer:
+     * «escríbenos por WhatsApp al +56 9 …». Sin número cargado queda en
+     * «contáctanos», que es lo que todos los correos decían antes.
+     */
+    private function comoContactar(bool $html = false): string
+    {
+        $tel = trim((string) config('emr.clinica_telefono'));
+        if ($tel === '') {
+            return 'contáctanos';
+        }
+
+        return 'escríbenos por WhatsApp al ' . ($html ? '<strong>' . Plantilla::e($tel) . '</strong>' : $tel);
+    }
+
+    /**
+     * Lo que cierra los correos de una hora que sigue en pie. Con `$html`,
+     * lo que se busca de un vistazo va en negrita: dónde y a qué número.
+     */
+    private function pieCambios(bool $html = false): string
+    {
+        $misCitas = $html ? '<strong>Mis citas</strong>' : '«Mis citas»';
+
+        return "Si no puedes venir, cambia o cancela la hora desde {$misCitas} en el portal, o "
+            . $this->comoContactar($html) . '.';
+    }
+
+    /**
+     * Las filas de la tarjeta de una cita, iguales en todos los correos al
+     * tutor: mascota, servicio, quién atiende, fecha y lugar.
+     *
+     * El especialista va en su propia fila, debajo del servicio, y no como
+     * cabecera de la tarjeta («Atiende Dra. …»): la cabecera es el servicio
+     * (pedido de la clínica, oct-2026). La mascota y la fecha van en negrita:
+     * son lo que se busca al abrir el correo.
+     */
+    private function filasCita(object $mascota, object $cita, ?object $especialista,
+                               bool $conLugar = true): string
+    {
+        $e = fn ($v) => Plantilla::e($v);
+        $filas = Plantilla::fila('🐾', '<strong>' . $e($mascota->nombre) . '</strong>')
+            . Plantilla::fila('🩺', $e($cita->servicio ?: '-'));
+        if ($especialista && trim((string) ($especialista->nombre ?? '')) !== '') {
+            $filas .= Plantilla::fila('👤', $e($especialista->nombre));
+        }
+        $filas .= Plantilla::fila(Plantilla::ICONO_FECHA,
+            '<strong>' . $e($this->fechaLegible($cita->fecha_hora)) . '</strong>');
+        if ($conLugar) {
+            $filas .= Plantilla::fila('📍', $e($this->lugar($cita)));
+        }
+
+        return $filas;
+    }
+
+    /** La cabecera de la tarjeta: el nombre del servicio. */
+    private function cabeceraCita(object $cita, string $sinServicio = 'Detalle de tu reserva'): string
+    {
+        return Plantilla::e($cita->servicio ?: $sinServicio);
+    }
+
+    /** La línea del especialista en el texto plano, o nada. */
+    private function lineaEspecialista(?object $especialista): string
+    {
+        $nombre = trim((string) ($especialista->nombre ?? ''));
+
+        return $nombre !== '' ? "  Especialista: {$nombre}\n" : '';
     }
 
     private function clp(int $monto): string
@@ -151,24 +226,45 @@ class CitasEmail
             return '';
         }
 
-        $monto = $this->clp((int) $cita->monto_abono_clp);
-        $lineaMonto = $this->esPagoTotal($cita)
-            ? "🩺 Para confirmar y hacer efectiva esta reserva se requiere el pago completo de {$monto}."
-            : "🩺 Para confirmar y hacer efectiva esta reserva se requiere un abono de {$monto} (50% del valor de la consulta).";
-        $queFalta = $this->esPagoTotal($cita) ? 'el pago' : 'el abono';
         $enlace = $this->enlacePago((string) $cita->id);
 
-        return "\n{$lineaMonto}\n\n"
-            . "Paga con tarjeta de crédito o débito aquí:\n  {$enlace}\n\n"
-            . "🛑 Guardamos la hora " . SlotsService::MINUTOS_VENTANA_PAGO . " minutos para que "
-            . "realices {$queFalta}. Pasado ese plazo este enlace sigue sirviendo, pero la hora "
-            . "puede tomarla otra persona.\n\n"
-            . "⏳ Si ya pagaste y por fuerza mayor no puedes asistir, avisa con 24 horas "
-            . "de anticipación: la devolución corresponde al 60% del valor pagado. Con "
-            . "menos de 24 horas de aviso no procede el reembolso.\n";
+        return "\n" . $this->lineaMontoPendiente($cita) . "\n\n"
+            . "Paga con tarjeta de crédito o débito en este enlace:\n  {$enlace}\n\n"
+            . $this->avisoPlazo() . "\n\n"
+            . $this->avisoDevolucion() . "\n";
     }
 
-    /** El correo de confirmación al tutor. */
+    /**
+     * Lo que falta pagar, en una frase. La comparten el texto plano y el HTML
+     * para que no vuelvan a decir cosas distintas (ver `html()`).
+     */
+    private function lineaMontoPendiente(object $cita, bool $html = false): string
+    {
+        $monto = $this->clp((int) $cita->monto_abono_clp);
+        $monto = $html ? '<strong>' . Plantilla::e($monto) . '</strong>' : $monto;
+
+        return $this->esPagoTotal($cita)
+            ? "Para confirmarla, paga el valor completo de la consulta: {$monto}."
+            : "Para confirmarla, paga un abono de {$monto} (el 50% de la consulta). El resto se paga en la clínica.";
+    }
+
+    private function avisoPlazo(bool $html = false): string
+    {
+        $min = SlotsService::MINUTOS_VENTANA_PAGO . ' minutos';
+
+        return 'Te guardamos la hora por ' . ($html ? "<strong>{$min}</strong>" : $min) . '. '
+            . 'Después el enlace sigue funcionando, pero la hora queda libre y otra persona puede tomarla.';
+    }
+
+    private function avisoDevolucion(bool $html = false): string
+    {
+        $b = fn ($t) => $html ? "<strong>{$t}</strong>" : $t;
+
+        return 'Si pagas y por fuerza mayor no puedes venir, avísanos con al menos ' . $b('24 horas')
+            . ' de anticipación y te devolvemos el ' . $b('60% de lo pagado') . '. Con menos de 24 horas '
+            . 'de aviso no hay devolución.';
+    }
+
     /**
      * EL asunto de la reserva, y por qué lo comparten dos correos.
      *
@@ -187,10 +283,14 @@ class CitasEmail
      * Vive en un método porque el día que los dos asuntos se separen por un
      * carácter, la agrupación se rompe EN SILENCIO: no falla nada, solo vuelven
      * a verse como dos correos.
+     *
+     * Recibe la cita y no la fecha ya armada: la fecha va en minúscula dentro
+     * del asunto, y así ninguno de los dos correos puede pasarla distinta.
      */
-    private function asuntoReserva(object $mascota, string $fecha): string
+    private function asuntoReserva(object $mascota, object $cita): string
     {
-        return "Reserva confirmada — " . Marca::nombre() . " | {$mascota->nombre} — {$fecha}";
+        return 'Reserva confirmada en ' . Marca::nombre() . ": {$mascota->nombre}, "
+            . $this->fechaLegible($cita->fecha_hora, false);
     }
 
     /**
@@ -209,7 +309,6 @@ class CitasEmail
     {
         try {
             $fecha = $this->fechaLegible($cita->fecha_hora);
-            $conEsp = $especialista ? " con {$especialista->nombre}" : '';
 
             // Quién pagó qué. El cliente puede haber dejado la consulta pagada
             // entera: hablarle siempre del «abono» le manda un comprobante por
@@ -234,7 +333,7 @@ class CitasEmail
 
             $titulo = $pagoTotal ? 'Pago recibido' : 'Abono recibido';
             $concepto = $pagoTotal ? 'pago' : 'abono';
-            $asunto = $this->asuntoReserva($mascota, $fecha);
+            $asunto = $this->asuntoReserva($mascota, $cita);
 
             $lineaSaldo = ($saldo !== null && $saldo > 0)
                 ? '  Saldo a pagar en la clínica: ' . $this->clp($saldo) . "\n" : '';
@@ -251,18 +350,16 @@ class CitasEmail
                 . "Recibimos tu {$concepto} de {$monto}. Tu hora quedó confirmada.\n\n"
                 . "  Mascota: {$mascota->nombre}\n"
                 . '  Servicio: ' . ($cita->servicio ?: '-') . "\n"
-                . "  Fecha: {$fecha}{$conEsp}\n"
+                . $this->lineaEspecialista($especialista)
+                . "  Fecha: {$fecha}\n"
                 . '  Lugar: ' . $this->lugar($cita) . "\n"
                 . $lineaRut . $lineaSaldo . $autorizacion
-                . "\nGuarda este correo como comprobante.\n\n"
-                . "Si necesitas reagendar o cancelar, contáctanos o hazlo desde tu portal de reservas.\n\n"
+                . "\nGuarda este correo: es tu comprobante de pago.\n\n"
+                . $this->pieCambios() . "\n\n"
                 . Marca::nombre();
 
             $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-            $filas = Plantilla::fila('🐾', '<strong>' . $e($mascota->nombre) . '</strong>')
-                . Plantilla::fila('🩺', $e($cita->servicio ?: '-'))
-                . Plantilla::fila('📅', $e($fecha) . $e($conEsp))
-                . Plantilla::fila('📍', $e($this->lugar($cita)));
+            $filas = $this->filasCita($mascota, $cita, $especialista);
             if ($saldo !== null && $saldo > 0) {
                 $filas .= Plantilla::fila('💲',
                     'Saldo a pagar en la clínica: <strong>' . $e($this->clp($saldo)) . '</strong>');
@@ -279,12 +376,9 @@ class CitasEmail
                 $e($titulo) . ' ✓',
                 'Hola ' . $e($usuario->nombre) . ', recibimos tu ' . $concepto . ' de '
                     . '<strong style="color:' . Plantilla::INK . '">' . $e($monto) . '</strong>. '
-                    . 'Tu hora quedó confirmada.',
-                Plantilla::tarjeta(
-                    $especialista ? 'Atiende ' . $e($especialista->nombre) : 'Detalle de tu reserva',
-                    $filas
-                ),
-                'Guarda este correo como comprobante.'
+                    . '<strong>Tu hora quedó confirmada.</strong>',
+                Plantilla::tarjeta($this->cabeceraCita($cita), $filas),
+                '<strong>Guarda este correo: es tu comprobante de pago.</strong> ' . $this->pieCambios(true)
             );
 
             // El resultado lo usa el aviso de WhatsApp: solo dice «te enviamos
@@ -297,15 +391,15 @@ class CitasEmail
         }
     }
 
+    /** El correo de confirmación al tutor. */
     public function notificarReservaCreada(
         object $usuario, object $mascota, object $cita, ?object $especialista): void
     {
         try {
             $fecha = $this->fechaLegible($cita->fecha_hora);
             $lugar = $this->lugar($cita);
-            $conEsp = $especialista ? " con {$especialista->nombre}" : '';
 
-            $asunto = $this->asuntoReserva($mascota, $fecha);
+            $asunto = $this->asuntoReserva($mascota, $cita);
 
             $queEsperar = '';
             foreach (self::QUE_ESPERAR as $linea) {
@@ -317,21 +411,22 @@ class CitasEmail
             // la hora se liberaba: el tutor tenía por escrito una promesa que
             // el sistema no cumplía (visto en pruebas el 14-sep-2026).
             $apertura = $this->abonoPendiente($cita)
-                ? 'Reservamos tu hora. Para dejarla confirmada falta '
-                    . ($this->esPagoTotal($cita) ? 'el pago' : 'el abono') . '. Aquí el detalle:'
-                : 'Tu visita está confirmada. Aquí el detalle:';
+                ? 'Reservamos tu hora, pero todavía no está confirmada: falta '
+                    . ($this->esPagoTotal($cita) ? 'el pago' : 'el abono') . '.'
+                : "Tu hora está confirmada. Te esperamos con {$mascota->nombre}.";
 
             $texto = "Hola {$usuario->nombre},\n\n"
                 . "{$apertura}\n\n"
                 . "  Mascota: {$mascota->nombre}\n"
                 . '  Servicio: ' . ($cita->servicio ?: '-') . "\n"
-                . "  Fecha: {$fecha}{$conEsp}\n"
+                . $this->lineaEspecialista($especialista)
+                . "  Fecha: {$fecha}\n"
                 . "  Lugar: {$lugar}\n"
                 . $this->bloqueAbonoTexto($cita) . "\n"
-                . "Qué esperar:\n"
+                . "Para tu visita:\n"
                 . $queEsperar
-                . "\nSi necesitas reagendar o cancelar, contáctanos o hazlo desde tu portal de reservas"
-                . ($this->abonoPendiente($cita) ? ".\n\n" : ":\n" . $this->enlaceReagendar() . "\n\n")
+                . "\n" . $this->pieCambios()
+                . ($this->abonoPendiente($cita) ? "\n\n" : "\n" . $this->enlaceReagendar() . "\n\n")
                 . Marca::nombre();
 
             $this->correo->enviar($usuario->email, $asunto, $texto,
@@ -376,10 +471,11 @@ class CitasEmail
             return 'Se paga en la clínica.';
         }
         $monto = $this->clp((int) $cita->monto_abono_clp);
+        $que = $this->esPagoTotal($cita) ? 'Pago' : 'Abono';
 
         return $cita->payment_status === 'approved'
-            ? "Abono de {$monto} pagado."
-            : "Abono de {$monto} pendiente (la hora se cae si no se paga).";
+            ? "{$que} de {$monto} pagado."
+            : "{$que} de {$monto} pendiente: si no se paga, la hora se libera.";
     }
 
     /**
@@ -387,7 +483,8 @@ class CitasEmail
      * leen. La etiqueta sigue existiendo aunque el HTML muestre el ícono: la
      * versión en texto plano la necesita, y ahí «Paciente: Diana» sí se lee.
      */
-    private function datosParaEspecialista(object $usuario, object $mascota, object $cita): array
+    private function datosParaEspecialista(object $usuario, object $mascota, object $cita,
+                                           string $etiquetaFecha = 'Fecha'): array
     {
         $contacto = implode(' · ', array_filter(
             [$usuario->nombre ?? null, $usuario->telefono ?? null, $usuario->email ?? null]));
@@ -396,7 +493,7 @@ class CitasEmail
             ['🐾', 'Paciente', $mascota->especie
                 ? "{$mascota->nombre} ({$mascota->especie})" : $mascota->nombre],
             ['🩺', 'Consulta', $cita->servicio ?: '-'],
-            ['📅', 'Fecha', $this->fechaLegible($cita->fecha_hora)],
+            [Plantilla::ICONO_FECHA, $etiquetaFecha, $this->fechaLegible($cita->fecha_hora)],
             ['⏱️', 'Duración', $cita->duracion_min ? "{$cita->duracion_min} min" : '-'],
             ['📍', 'Lugar', $this->lugar($cita)],
             ['👤', 'Tutor', $contacto],
@@ -414,7 +511,8 @@ class CitasEmail
      * clínica y el tutor.
      */
     private function avisarEspecialista(?object $especialista, object $usuario,
-        object $mascota, object $cita, string $asunto, string $encabezado, string $contexto): void
+        object $mascota, object $cita, string $asunto, string $encabezado, string $frase,
+        string $contexto, string $etiquetaFecha = 'Fecha'): void
     {
         $destino = $this->correoEspecialista($especialista);
         if (! $destino) {
@@ -422,26 +520,30 @@ class CitasEmail
         }
 
         try {
-            $filas = $this->datosParaEspecialista($usuario, $mascota, $cita);
+            $filas = $this->datosParaEspecialista($usuario, $mascota, $cita, $etiquetaFecha);
 
             $lineas = '';
             foreach ($filas as [, $etiqueta, $valor]) {
                 $lineas .= "  {$etiqueta}: {$valor}\n";
             }
-            $texto = "Hola {$especialista->nombre},\n\n{$encabezado}\n\n{$lineas}\n" . Marca::nombre();
+            $texto = "Hola {$especialista->nombre},\n\n{$frase}\n\n{$lineas}\n" . Marca::nombre();
 
             // Escapado por lo mismo que el correo del tutor, y con MÁS
             // superficie: acá viajan el nombre del tutor, el de la mascota, el
             // motivo de consulta y la dirección — todos campos de un formulario
             // público que se llena sin sesión.
             $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+            // Paciente y fecha en negrita: es lo que se lee primero entre consultas.
             $filasHtml = '';
-            foreach ($filas as [$icono, , $valor]) {
-                $filasHtml .= Plantilla::fila($icono, $e($valor));
+            foreach ($filas as [$icono, $etiqueta, $valor]) {
+                $fuerte = in_array($etiqueta, ['Paciente', 'Fecha', 'Nueva fecha'], true);
+                $filasHtml .= Plantilla::fila($icono, $fuerte ? '<strong>' . $e($valor) . '</strong>' : $e($valor));
             }
             $html = Plantilla::pagina(
                 $e($encabezado),
-                'Hola ' . $e($especialista->nombre),
+                // `lcfirst` y no `mb_lcfirst` (PHP 8.4): el hosting corre 8.3, y
+                // las frases de quien llama empiezan con letra sin tilde.
+                'Hola ' . $e($especialista->nombre) . ', ' . $e(lcfirst($frase)),
                 Plantilla::tarjeta($e($cita->servicio ?: 'Detalle de la hora'), $filasHtml)
             );
 
@@ -455,19 +557,19 @@ class CitasEmail
     public function notificarEspecialistaReservaCreada(?object $especialista,
         object $usuario, object $mascota, object $cita): void
     {
-        $fecha = $this->fechaLegible($cita->fecha_hora);
+        $fecha = $this->fechaLegible($cita->fecha_hora, false);
         $this->avisarEspecialista($especialista, $usuario, $mascota, $cita,
-            "Nueva hora agendada — {$mascota->nombre}, {$fecha}",
-            'Te agendaron una hora', 'reserva creada');
+            "Nueva hora en tu agenda: {$mascota->nombre}, {$fecha}",
+            'Nueva hora en tu agenda', 'Te agendaron esta hora.', 'reserva creada');
     }
 
     public function notificarEspecialistaReagendada(?object $especialista,
         object $usuario, object $mascota, object $cita): void
     {
-        $fecha = $this->fechaLegible($cita->fecha_hora);
+        $fecha = $this->fechaLegible($cita->fecha_hora, false);
         $this->avisarEspecialista($especialista, $usuario, $mascota, $cita,
-            "Cambio de hora — {$mascota->nombre}, {$fecha}",
-            'Una hora tuya cambió de fecha', 'reagendada');
+            "Hora movida: {$mascota->nombre}, ahora el {$fecha}",
+            'Una de tus horas cambió', 'Esta hora pasó a una nueva fecha.', 'reagendada', 'Nueva fecha');
     }
 
     /**
@@ -480,34 +582,34 @@ class CitasEmail
     {
         try {
             $fecha = $this->fechaLegible($cita->fecha_hora);
-            $conEsp = $especialista ? " con {$especialista->nombre}" : '';
+            $noFuiste = fn (bool $html = false) => 'Si tú no pediste este cambio, '
+                . $this->comoContactar($html) . ' y lo revisamos.';
 
             $texto = "Hola {$usuario->nombre},\n\n"
-                . "La cita de {$mascota->nombre} en " . Marca::nombre() . " fue reagendada:\n"
+                . "La cita de {$mascota->nombre} quedó en una nueva hora:\n"
                 . '  Servicio: ' . ($cita->servicio ?: '-') . "\n"
-                . "  Nueva fecha: {$fecha}{$conEsp}\n"
+                . $this->lineaEspecialista($especialista)
+                . "  Nueva fecha: {$fecha}\n"
                 . '  Lugar: ' . $this->lugar($cita) . "\n\n"
-                . "¿Necesitas cambiarla otra vez? Reagenda aquí:\n" . $this->enlaceReagendar() . "\n\n"
-                . "Si esto no fue solicitado por ti, contáctanos a la brevedad.\n\n"
+                . "¿Necesitas cambiarla otra vez? Hazlo desde «Mis citas»:\n" . $this->enlaceReagendar() . "\n\n"
+                . $noFuiste() . "\n\n"
                 . Marca::nombre();
 
             $e = fn ($v) => Plantilla::e($v);
-            $filas = Plantilla::fila('🐾', '<strong>' . $e($mascota->nombre) . '</strong>')
-                . Plantilla::fila('🩺', $e($cita->servicio ?: '-'))
-                . Plantilla::fila('📅', '<strong>' . $e($fecha) . '</strong>' . $e($conEsp))
-                . Plantilla::fila('📍', $e($this->lugar($cita)));
+            $filas = $this->filasCita($mascota, $cita, $especialista);
 
             $html = Plantilla::pagina(
                 'Tu cita cambió de hora',
                 'Hola ' . $e($usuario->nombre) . ', la cita de <strong style="color:' . Plantilla::INK . '">'
-                    . $e($mascota->nombre) . '</strong> fue reagendada.',
-                Plantilla::tarjeta($especialista ? 'Atiende ' . $e($especialista->nombre) : 'Tu nueva hora', $filas)
+                    . $e($mascota->nombre) . '</strong> quedó en una nueva hora.',
+                Plantilla::tarjeta($this->cabeceraCita($cita, 'Tu nueva hora'), $filas)
                 . Plantilla::bloqueReagendar($this->enlaceReagendar()),
-                'Si esto no fue solicitado por ti, contáctanos a la brevedad.'
+                $noFuiste(true)
             );
 
             $this->correo->enviar($usuario->email,
-                "Tu cita cambió de hora: {$mascota->nombre} — {$fecha}", $texto, $html);
+                "Nueva hora para {$mascota->nombre}: " . $this->fechaLegible($cita->fecha_hora, false),
+                $texto, $html);
         } catch (\Throwable $e) {
             Log::error("Error notificando reagendamiento (cita {$cita->id}): " . $e->getMessage());
         }
@@ -518,47 +620,75 @@ class CitasEmail
      * sea la creación inicial ni el reagendamiento.
      *
      * El título cambia con el estado y el ✓ solo va donde algo se cerró bien;
-     * una cancelación no lleva ✓. El lugar se omite al cancelar: a quien ya no
-     * va no le sirve saber adónde.
+     * una cancelación no lleva ✓. El lugar se omite al cancelar y al
+     * completar: a quien ya no va, o ya fue, no le sirve saber adónde.
+     *
+     * Cada estado dice lo suyo y deja UN paso siguiente: la confirmada,
+     * cambiar la hora; la cancelada, reservar otra (una hora cancelada pierde
+     * al paciente si el correo no le ofrece volver).
      */
     public function notificarCambioEstado(object $usuario, object $mascota, object $cita): void
     {
         try {
             $fecha = $this->fechaLegible($cita->fecha_hora);
-            $etiquetas = [
-                'Cancelada' => 'cancelada',
-                'Confirmada' => 'confirmada',
-                'Completada' => 'marcada como completada',
-                'Agendada' => 'reactivada',
-            ];
-            $etiqueta = $etiquetas[$cita->estado] ?? mb_strtolower((string) $cita->estado);
-            $cancelada = $cita->estado === 'Cancelada';
+            $enFrase = $this->fechaLegible($cita->fecha_hora, false);
+            $nombre = $mascota->nombre;
+            $contacto = $this->comoContactar();
+            $contactoHtml = $this->comoContactar(true);
+            $portal = rtrim((string) config('emr.portal_reservas_url'), '/');
 
-            $texto = "Hola {$usuario->nombre},\n\n"
-                . "La cita de {$mascota->nombre} en " . Marca::nombre() . " fue {$etiqueta}:\n"
+            // [asunto, título, frase del saludo, cierre, botón [subtítulo, texto, enlace] o null].
+            // La frase lleva `{mascota}` y no el nombre: en el HTML va resaltado.
+            $copia = match ($cita->estado) {
+                'Cancelada' => ["Cita cancelada: {$nombre}, {$enFrase}", 'Tu cita fue cancelada',
+                    'la cita de {mascota} quedó cancelada.',
+                    "Si tú no pediste la cancelación, {$contacto}.",
+                    ['¿Quieres otra hora?', 'Reservar otra hora', $portal]],
+                'Confirmada' => ["Cita confirmada: {$nombre}, {$enFrase}", 'Tu cita fue confirmada ✓',
+                    'confirmamos la cita de {mascota}. Te esperamos.',
+                    $this->pieCambios(),
+                    ['¿Necesitas cambiar la hora?', 'Reagendar mi cita', $this->enlaceReagendar()]],
+                'Completada' => ["Gracias por venir con {$nombre}", 'Atención realizada ✓',
+                    'gracias por confiarnos a {mascota}.',
+                    "Si te queda alguna duda sobre las indicaciones, {$contacto}.", null],
+                'Agendada' => ["Cita activa de nuevo: {$nombre}, {$enFrase}", 'Tu cita está activa de nuevo',
+                    'la cita de {mascota} vuelve a estar agendada.',
+                    $this->pieCambios(),
+                    ['¿Necesitas cambiar la hora?', 'Reagendar mi cita', $this->enlaceReagendar()]],
+                default => ["Tu cita cambió de estado: {$nombre}, {$enFrase}", 'Tu cita cambió de estado',
+                    'la cita de {mascota} quedó ' . mb_strtolower((string) $cita->estado) . '.',
+                    "Si tienes dudas, {$contacto}.", null],
+            };
+            [$asunto, $titulo, $frase, $cierre, $accion] = $copia;
+            $conLugar = ! in_array($cita->estado, ['Cancelada', 'Completada'], true);
+
+            $texto = "Hola {$usuario->nombre},\n\n" . ucfirst(str_replace('{mascota}', $nombre, $frase)) . "\n\n"
                 . '  Servicio: ' . ($cita->servicio ?: '-') . "\n"
-                . "  Fecha: {$fecha}\n\n"
-                . "Si tienes dudas, contáctanos.\n\n"
+                . "  Fecha: {$fecha}\n"
+                . ($conLugar ? '  Lugar: ' . $this->lugar($cita) . "\n" : '') . "\n"
+                . ($accion ? "{$accion[0]}\n{$accion[2]}\n\n" : '')
+                . "{$cierre}\n\n"
                 . Marca::nombre();
 
             $e = fn ($v) => Plantilla::e($v);
-            $filas = Plantilla::fila('🐾', '<strong>' . $e($mascota->nombre) . '</strong>')
-                . Plantilla::fila('🩺', $e($cita->servicio ?: '-'))
-                . Plantilla::fila('📅', $e($fecha));
-            if (! $cancelada) {
-                $filas .= Plantilla::fila('📍', $e($this->lugar($cita)));
-            }
+            $filas = $this->filasCita($mascota, $cita, null, $conLugar);
+            $boton = $accion
+                ? Plantilla::subtitulo($e($accion[0])) . Plantilla::boton($e($accion[2]), $e($accion[1]))
+                : '';
+
+            // El nombre de la mascota va resaltado, como en los demás correos.
+            $fraseHtml = str_replace('{mascota}',
+                '<strong style="color:' . Plantilla::INK . '">' . $e($nombre) . '</strong>', $e($frase));
 
             $html = Plantilla::pagina(
-                'Tu cita fue ' . $e($etiqueta) . (in_array($cita->estado, ['Confirmada', 'Completada'], true) ? ' ✓' : ''),
-                'Hola ' . $e($usuario->nombre) . ', la cita de <strong style="color:' . Plantilla::INK . '">'
-                    . $e($mascota->nombre) . '</strong> fue ' . $e($etiqueta) . '.',
-                Plantilla::tarjeta('Detalle de la cita', $filas),
-                'Si tienes dudas, contáctanos.'
+                $titulo,
+                'Hola ' . $e($usuario->nombre) . ', ' . $fraseHtml,
+                Plantilla::tarjeta($this->cabeceraCita($cita, 'Detalle de la cita'), $filas) . $boton,
+                // El cierre en HTML: el número de WhatsApp y «Mis citas» en negrita.
+                str_replace([$e($contacto), '«Mis citas»'], [$contactoHtml, '<strong>Mis citas</strong>'], $e($cierre))
             );
 
-            $this->correo->enviar($usuario->email,
-                "Tu cita fue {$etiqueta}: {$mascota->nombre} — {$fecha}", $texto, $html);
+            $this->correo->enviar($usuario->email, $asunto, $texto, $html);
         } catch (\Throwable $e) {
             Log::error("Error notificando cambio de estado (cita {$cita->id}): " . $e->getMessage());
         }
@@ -567,10 +697,10 @@ class CitasEmail
     public function notificarEspecialistaCancelada(?object $especialista,
         object $usuario, object $mascota, object $cita): void
     {
-        $fecha = $this->fechaLegible($cita->fecha_hora);
+        $fecha = $this->fechaLegible($cita->fecha_hora, false);
         $this->avisarEspecialista($especialista, $usuario, $mascota, $cita,
-            "Hora cancelada — {$mascota->nombre}, {$fecha}",
-            'Se canceló una hora tuya', 'cancelada');
+            "Hora cancelada: {$mascota->nombre}, {$fecha}",
+            'Se canceló una hora', 'Esta hora se canceló y quedó libre en tu agenda.', 'cancelada');
     }
 
     /**
@@ -586,16 +716,12 @@ class CitasEmail
                           ?object $especialista, string $fecha, string $lugar): string
     {
         $e = fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
-        $cabecera = $especialista
-            ? 'Atiende ' . $e($especialista->nombre) : 'Detalle de tu reserva';
+        $cabecera = $this->cabeceraCita($cita);
 
         // El detalle va como filas de ícono + texto y NO como tabla
         // etiqueta/valor: en esa tabla el nombre de la mascota salía pegado a
         // su etiqueta —«MascotaDiana»— en los clientes que colapsan celdas.
-        $filas = Plantilla::fila('🐾', '<strong>' . $e($mascota->nombre) . '</strong>')
-            . Plantilla::fila('🩺', $e($cita->servicio ?: '-'))
-            . Plantilla::fila('📅', $e($fecha))
-            . Plantilla::fila('📍', $e($lugar));
+        $filas = $this->filasCita($mascota, $cita, $especialista);
 
         $items = '';
         foreach (self::QUE_ESPERAR as $linea) {
@@ -611,37 +737,29 @@ class CitasEmail
             $pagoTotal = $this->esPagoTotal($cita);
             $monto = $this->clp((int) $cita->monto_abono_clp);
             $queFalta = $pagoTotal ? 'el pago' : 'el abono';
-            $min = SlotsService::MINUTOS_VENTANA_PAGO;
 
-            $pago = "<p style='margin:0 0 10px;font-size:15px;line-height:1.5;color:" . Plantilla::INK . "'>"
-                . 'Para confirmar esta hora se requiere '
-                . ($pagoTotal
-                    ? 'el pago completo de <strong>' . $e($monto) . '</strong>.'
-                    : 'un abono de <strong>' . $e($monto) . '</strong> (50% del valor de la consulta).')
-                . '</p>'
+            $pago = Plantilla::parrafo($this->lineaMontoPendiente($cita, true))
                 . Plantilla::boton($e($this->enlacePago((string) $cita->id)),
                     ($pagoTotal ? 'Pagar ' : 'Pagar abono de ') . $e($monto));
 
-            $aviso = "🛑 Guardamos la hora <strong>{$min} minutos</strong> para que realices {$queFalta}. "
-                . 'Pasado ese plazo el enlace sigue sirviendo, pero la hora puede tomarla otra persona.'
-                . '<br><br>⏳ Si ya pagaste y por fuerza mayor no puedes asistir, avisa con 24 horas de '
-                . 'anticipación: la devolución corresponde al 60% del valor pagado. Con menos de 24 horas '
-                . 'de aviso no procede el reembolso.';
+            $aviso = $this->avisoPlazo(true) . '<br><br>' . $this->avisoDevolucion(true);
 
             return Plantilla::pagina(
                 'Tu hora está reservada',
-                'Hola ' . $e($usuario->nombre) . ', falta ' . $queFalta . ' para confirmarla.',
+                'Hola ' . $e($usuario->nombre) . ', falta <strong style="color:' . Plantilla::INK . '">'
+                    . $queFalta . '</strong> para confirmarla.',
                 $pago . Plantilla::tarjeta($cabecera, $filas, $aviso) . Plantilla::bloqueQueEsperar($items),
-                'Si necesitas reagendar o cancelar, contáctanos o hazlo desde tu portal de reservas.'
+                $this->pieCambios(true)
             );
         }
 
         return Plantilla::pagina(
-            'Tu visita está confirmada ✓',
-            'Hola ' . $e($usuario->nombre),
+            'Tu hora está confirmada ✓',
+            'Hola ' . $e($usuario->nombre) . ', te esperamos con <strong style="color:' . Plantilla::INK . '">'
+                . $e($mascota->nombre) . '</strong>.',
             Plantilla::tarjeta($cabecera, $filas) . Plantilla::bloqueQueEsperar($items)
                 . Plantilla::bloqueReagendar($this->enlaceReagendar(), true),
-            'Si necesitas reagendar o cancelar, contáctanos o hazlo desde tu portal de reservas.'
+            $this->pieCambios(true)
         );
     }
 }

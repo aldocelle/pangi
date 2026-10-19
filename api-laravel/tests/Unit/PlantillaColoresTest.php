@@ -54,7 +54,9 @@ class PlantillaColoresTest extends TestCase
 
         $this->assertStringContainsString('background:#ffffff', $pagina);
         $this->assertStringContainsString('Clínica Demo', $pagina);
-        $this->assertStringNotContainsString('PANGI', $pagina);
+        // El texto elegido reemplaza al nombre en el pie (el logo de arriba sigue siendo el de la clínica).
+        $this->assertStringContainsString("text-align:center'>Clínica Demo</p>", $pagina);
+        $this->assertStringNotContainsString("text-align:center'>PANGI</p><p style='margin:4px", $pagina);
         $this->assertStringContainsString('background:#e6f7f9', $tarjeta);
         $this->assertStringContainsString('background:#fbeee6', $tarjeta);
         $this->assertStringContainsString('background:#087c8a', $boton);

@@ -14,6 +14,7 @@
  */
 
 $datos = env('DATOS_DIR') ?: base_path();
+$sitio = rtrim((string) (env('SITIO_URL') ?: ''), '/');
 
 return [
     'datos_dir' => $datos,
@@ -43,6 +44,16 @@ return [
     'clinica_direccion' => env('CLINICA_DIRECCION') ?: null,
 
     'clinica_telefono' => env('CLINICA_TELEFONO') ?: '+569 0000 0000',
+
+    /*
+     * El sitio de la clínica y el logo de los correos (`Plantilla::pagina`).
+     * El logo es `website/public/correo-logo.png`, que se publica con el
+     * sitio: PNG porque Outlook de escritorio no muestra WebP. Sin sitio ni
+     * `CORREO_LOGO_URL`, el correo pone el nombre de la clínica en texto.
+     */
+    'sitio_url' => $sitio,
+
+    'correo_logo_url' => env('CORREO_LOGO_URL') ?: ($sitio !== '' ? $sitio . '/correo-logo.png' : null),
 
     /*
      * ── Los correos que se mandan solos ──────────────────────────────────

@@ -195,7 +195,7 @@ class EstadoSistemaTest extends TestCase
         $this->artisan('estado:revisar')->assertSuccessful();
         $this->assertCount(1, $this->correos, 'solo admins activos');
         $this->assertSame('jefe@x.cl', $this->correos[0][0]);
-        $this->assertStringContainsString('WhatsApp — Token vencido', $this->correos[0][1]);
+        $this->assertStringContainsString('WhatsApp (Token vencido', $this->correos[0][1]);
 
         $this->artisan('estado:revisar')->assertSuccessful();
         $this->assertCount(1, $this->correos, 'sigue caído: no se repite enseguida');
@@ -252,7 +252,7 @@ class EstadoSistemaTest extends TestCase
         DB::table('ajustes')->update(['data' => json_encode(['alertas' => ['activo' => true, 'extra' => [], 'apagados' => []]])]);
         $this->artisan('estado:revisar')->assertSuccessful();
         $this->assertCount(1, $this->correos);
-        $this->assertStringContainsString('WhatsApp — Token vencido', $this->correos[0][1]);
+        $this->assertStringContainsString('WhatsApp (Token vencido', $this->correos[0][1]);
     }
 
     /** Decisión de producto (05-oct): indicadores en Estado del sistema. Hoy = 5-oct 21:00 en Chile = 6-oct 00:00 UTC. */

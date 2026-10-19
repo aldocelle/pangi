@@ -84,17 +84,19 @@ class MensajeRecordatorio
         $que = self::resolver($que, $mascota, $dueno, $r->fecha_programada ?? null);
         $asunto = "{$mascota->nombre} tiene pendiente: {$que}";
 
+        // «Pendiente: Vacuna antirrábica» y no «tiene pendiente vacuna
+        // antirrábica»: el título lo escribe la oficina y no siempre admite
+        // artículo, así que va tal cual, después de dos puntos.
         $cuerpo = "Hola {$dueno->nombre},\n\n"
-            . 'Te escribimos desde ' . self::clinica() . ' para recordarte que '
-            . "{$mascota->nombre} tiene pendiente " . mb_strtolower($que)
-            . (! empty($r->fecha_programada) ? ' para el ' . self::fechaCorta($r->fecha_programada) : '') . ".\n";
+            . 'Te escribimos desde ' . self::clinica() . " para recordarte lo que tiene pendiente {$mascota->nombre}:\n\n"
+            . "  {$que}"
+            . (! empty($r->fecha_programada) ? ', para el ' . self::fechaCorta($r->fecha_programada) : '') . "\n";
         if ($r->mensaje) {
             $cuerpo .= "\n" . self::resolver($r->mensaje, $mascota, $dueno, $r->fecha_programada ?? null) . "\n";
         }
-        $cuerpo .= "\nPara agendar la hora escríbenos por WhatsApp al "
-            . config('emr.clinica_telefono') . ' o entra a '
-            . rtrim((string) config('emr.portal_reservas_url'), '/') . ".\n\n"
-            . "Si ya lo hiciste, ignora este mensaje.\n\n"
+        $cuerpo .= "\nReserva la hora en " . rtrim((string) config('emr.portal_reservas_url'), '/')
+            . ' o escríbenos por WhatsApp al ' . config('emr.clinica_telefono') . ".\n\n"
+            . self::YA_LO_HICISTE . "\n\n"
             . (trim($config['firma'] ?? '') !== '' ? trim($config['firma']) . "\n\n" : '')
             . self::clinica();
 
@@ -119,7 +121,7 @@ class MensajeRecordatorio
         $filas = Plantilla::fila('🐾', '<strong>' . $e($mascota->nombre) . '</strong>')
             . Plantilla::fila('🩺', $e($que));
         if (! empty($r->fecha_programada)) {
-            $filas .= Plantilla::fila('📅', $e(self::fechaCorta($r->fecha_programada)));
+            $filas .= Plantilla::fila(Plantilla::ICONO_FECHA, '<strong>' . $e(self::fechaCorta($r->fecha_programada)) . '</strong>');
         }
 
         $cuerpo = Plantilla::tarjeta('Pendiente', $filas);
@@ -128,20 +130,23 @@ class MensajeRecordatorio
                 self::resolver($r->mensaje, $mascota, $dueno, $r->fecha_programada ?? null))));
         }
         $enlace = rtrim((string) config('emr.portal_reservas_url'), '/');
-        $cuerpo .= Plantilla::subtitulo('¿Quieres agendar la hora?')
+        $cuerpo .= Plantilla::subtitulo('¿Agendamos la hora?')
             . Plantilla::boton($e($enlace), 'Reservar hora')
-            . Plantilla::parrafo('También puedes escribirnos por WhatsApp al '
-                . $e(config('emr.clinica_telefono')) . '.', true);
+            . Plantilla::parrafo('También puedes escribirnos por WhatsApp al <strong>'
+                . $e(config('emr.clinica_telefono')) . '</strong>.', true);
 
         $firma = trim($config['firma'] ?? '');
 
         return Plantilla::pagina(
             'Un recordatorio para ' . $e($mascota->nombre),
-            'Hola ' . $e($dueno->nombre) . ', te escribimos desde ' . $e(self::clinica()) . '.',
+            'Hola ' . $e($dueno->nombre) . ', ' . $e($mascota->nombre) . ' tiene una atención pendiente.',
             $cuerpo,
-            'Si ya lo hiciste, ignora este mensaje.' . ($firma !== '' ? '<br>' . nl2br($e($firma)) : '')
+            self::YA_LO_HICISTE . ($firma !== '' ? '<br>' . nl2br($e($firma)) : '')
         );
     }
+
+    /** El cierre: el aviso pudo cruzarse con una hora que ya se tomó. */
+    private const YA_LO_HICISTE = 'Si ya tienes la hora agendada o la atención ya se hizo, no necesitas hacer nada.';
 
     private static function clinica(): string
     {

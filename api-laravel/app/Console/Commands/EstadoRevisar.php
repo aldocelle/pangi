@@ -118,7 +118,7 @@ class EstadoRevisar extends TareaDeFondo
     {
         $para = EstadoSistema::destinatarios();
         $asunto = $caidas
-            ? '⚠ ' . \App\Services\Marca::nombre() . ': ' . implode(' y ', array_map(fn ($s) => "{$s['nombre']} — {$s['resumen']}", $caidas))
+            ? '⚠ ' . \App\Services\Marca::nombre() . ': ' . implode(' y ', array_map(fn ($s) => "{$s['nombre']} ({$s['resumen']})", $caidas))
             : '✓ ' . \App\Services\Marca::nombre() . ': ' . implode(' y ', array_column($vueltas, 'nombre')) . ' volvió a funcionar';
 
         $texto = '';
