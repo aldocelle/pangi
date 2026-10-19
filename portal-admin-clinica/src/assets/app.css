@@ -65,6 +65,13 @@
   --side-bg-2: #16224d;
   --side-ink: #c7cde3;               /* 10.7 sobre el sidebar */
   --side-ink-soft: #8b93b8;          /* 5.1 en el extremo mas claro: pasa AA */
+  /* La sección abierta del menú del celular: un azul un poco más claro que el
+     de la barra, para que se vea qué está desplegado (pedido de la clínica,
+     19-oct-2026). Medido sobre #223061: enlaces --side-ink 7.98, subtítulos
+     --side-ink-soft-desplegado 5.56 (el --side-ink-soft de siempre daría 4.19,
+     bajo AA, por eso el suyo propio). */
+  --side-desplegado: #223061;
+  --side-ink-soft-desplegado: #a3abcc;
   /* El turquesa de marca NO sirve sobre el sidebar: `--accent` (#087c8a) da
      3.44 contra #101a3d y 3.11 contra #16224d, bajo el 4.5 que exige el texto
      normal — y lo usaba el subtitulo de la marca, a 0.74rem. Mismo matiz y

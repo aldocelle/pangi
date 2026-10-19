@@ -245,7 +245,7 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
     <nav class="cajon-nav" aria-label="Navegación principal">
       <template v-for="m in menus" :key="m.id">
         <RouterLink v-if="m.to" :to="m.to" class="cajon-link solo">{{ m.label }}</RouterLink>
-        <section v-else class="cajon-grupo">
+        <section v-else class="cajon-grupo" :class="{ abierto: grupoCajon === m.id }">
           <button
             type="button" class="cajon-pestana" :class="{ actual: esActivo(m) }"
             :aria-expanded="grupoCajon === m.id" :aria-controls="`cajon-panel-${m.id}`"
@@ -367,7 +367,10 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
 .cajon.abierto { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
 .cajon-cab { display: flex; align-items: center; justify-content: space-between; height: var(--alto-barra); padding: 0 0.7rem 0 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
 .cajon-nav { flex: 1; overflow-y: auto; padding: 0.6rem 0.6rem 1.2rem; display: flex; flex-direction: column; gap: 0.15rem; }
-.cajon-grupo { display: flex; flex-direction: column; }
+.cajon-grupo { display: flex; flex-direction: column; border-radius: var(--r-md); transition: background 0.18s ease-out; }
+.cajon-grupo.abierto { background: var(--side-desplegado); margin: 0.2rem 0; }
+.cajon-grupo.abierto .cajon-pestana { background: transparent; }
+.cajon-grupo.abierto .cajon-subtitulo { color: var(--side-ink-soft-desplegado); }
 .cajon-pestana {
   display: flex; align-items: center; justify-content: space-between; width: 100%;
   padding: 0.55rem 0.7rem; border-radius: var(--r-sm); text-align: left;
@@ -395,7 +398,7 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
 }
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; }
-  .cajon, .cajon.abierto, .chev, .menu-btn, .barra-ic, .cajon-pestana { transition: none; }
+  .cajon, .cajon.abierto, .chev, .menu-btn, .barra-ic, .cajon-pestana, .cajon-grupo { transition: none; }
 }
 @media print {
   .barra, .cajon, .cajon-fondo { display: none; }
