@@ -7,6 +7,10 @@ import PasswordInput from '../components/PasswordInput.vue';
 import BotonGoogle from '../components/BotonGoogle.vue';
 import { CLINICA } from '../marca.js';
 
+// Carpeta desde la que se sirve el panel ('/' o, por ejemplo, '/panel/'): sale
+// del `--base` de Vite. Las imágenes de public/ se piden con ella delante.
+const BASE = import.meta.env.BASE_URL;
+
 const auth = useAuthStore();
 const router = useRouter();
 
@@ -38,7 +42,7 @@ async function submit() {
   <div class="login-wrap">
     <div class="login-card">
       <div class="login-brand">
-        <img src="/logo.webp" :alt="CLINICA" class="login-logo" />
+        <img :src="`${BASE}logo.webp`" :alt="CLINICA" class="login-logo" />
         <h1>Panel de administración</h1>
         <p>Reservas, consultas, especialistas y fichas de la clínica.</p>
       </div>

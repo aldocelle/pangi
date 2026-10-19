@@ -33,7 +33,8 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('access_token');
-      if (!location.pathname.startsWith('/login')) location.href = '/login';
+      const login = `${import.meta.env.BASE_URL}login`;
+      if (!location.pathname.startsWith(login)) location.href = login;
     }
     return Promise.reject(err);
   }
@@ -75,9 +76,9 @@ export const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sáb
 /* Foto genérica por especie (mismo criterio que portal-reservas/api.js) */
 export function fotoEspecie(especie) {
   const e = (especie || '').toLowerCase();
-  if (e.includes('gat')) return '/mascotas/gato.jpg';
-  if (e.includes('perr')) return '/mascotas/perro.jpg';
-  return '/mascotas/otro.jpg';
+  if (e.includes('gat')) return `${import.meta.env.BASE_URL}mascotas/gato.jpg`;
+  if (e.includes('perr')) return `${import.meta.env.BASE_URL}mascotas/perro.jpg`;
+  return `${import.meta.env.BASE_URL}mascotas/otro.jpg`;
 }
 
 /* Las fotos que suben los tutores desde el portal vuelven como ruta relativa

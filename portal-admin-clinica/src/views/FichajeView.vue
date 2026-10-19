@@ -19,6 +19,10 @@ import axios from 'axios';
 import { API_URL } from '../api.js';
 import GrillaFichaje from '../components/GrillaFichaje.vue';
 
+// Carpeta desde la que se sirve el panel ('/' o, por ejemplo, '/panel/'): sale
+// del `--base` de Vite. Las imágenes de public/ se piden con ella delante.
+const BASE = import.meta.env.BASE_URL;
+
 const CLAVE_TOKEN = 'fichaje_token';
 
 const token = ref(localStorage.getItem(CLAVE_TOKEN) || '');
@@ -133,7 +137,7 @@ onUnmounted(() => {
   <div class="kiosco">
     <header class="k-top">
       <div class="k-marca">
-        <img src="/isotipo.webp" alt="" class="k-logo" />
+        <img :src="`${BASE}isotipo.webp`" alt="" class="k-logo" />
         <strong>Registro de asistencia</strong>
       </div>
       <div class="k-reloj">

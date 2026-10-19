@@ -1,10 +1,23 @@
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
-import { api, apiError, fotoEspecie, urlFoto } from '../api.js';
+import { api, apiError, urlFoto } from '../api.js';
+import { retratoDe } from '../retratos.js';
+import { ESTADO_VISIBLE } from '../colores-citas.js';
+import { MODOS_COLOR, modoColor, fijarCatalogoColores, colorearCitas, claveDeColor } from '../colores-agenda.js';
 import NuevaCitaModal from '../components/NuevaCitaModal.vue';
 import ReagendarCitaModal from '../components/ReagendarCitaModal.vue';
-import BuscadorAvanzado from '../components/BuscadorAvanzado.vue';
+import BloqueoModal from '../components/BloqueoModal.vue';
+import MiniCalendario from '../components/agenda/MiniCalendario.vue';
+import GrillaDia from '../components/agenda/GrillaDia.vue';
+import Burbuja from '../components/agenda/Burbuja.vue';
+import DetalleCita from '../components/agenda/DetalleCita.vue';
+
+/* ── Agenda (rediseño oct-2026) ──
+   A la izquierda, los filtros y el calendario del mes; a la derecha, el día en
+   columnas por profesional (o la semana, o el mes). La referencia de
+   distribución es la de las agendas de clínica que la recepción ya conoce: una
+   columna por persona, la hora fija a la izquierda, lo no disponible en gris. */
 
 /* ── Fechas ──
    Todo en strings ISO (YYYY-MM-DD) y Date locales, sin librería, igual que el
@@ -51,6 +64,7 @@ const VISTAS = [
 ];
 const ESTADOS = ['Agendada', 'Confirmada', 'Completada', 'Cancelada'];
 const DIAS_CORTOS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const SIN = '__sin__';
 
 const route = useRoute();
 const router = useRouter();
@@ -65,13 +79,32 @@ const vista = ref(vistaInicial);
 const fecha = ref(fechaInicial);       // día ancla: no cambia al cambiar de vista
 const citas = ref([]);
 const especialistas = ref([]);
+const ventanas = ref({});              // especialista → { día → [{ desde, ultimo_inicio }] }
+const bloqueos = ref([]);
 const loading = ref(true);             // primera carga: no hay nada que mostrar
 const refrescando = ref(false);        // recarga con datos viejos todavía en pantalla
 const error = ref('');
-const modalNueva = ref(false);
-const fechaNueva = ref(fecha.value);   // día que precarga el modal de nueva cita
+const sinDisponibilidad = ref(false);  // /agenda/disponibilidad falló: se ve todo como libre
 
-const filtros = reactive({ paciente: '', tutor: '', telefono: '', consulta: '', especialista: '', estado: '' });
+/* Campos dirigidos, no un cajón de sastre: buscar "luna" en un campo único
+   devuelve la paciente Luna, la tutora Luna y la Dra. Luna todas mezcladas.
+   Separados, cada uno responde una pregunta sola — mismo criterio que los
+   buscadores de Pacientes y Tutores. Se combinan con Y. */
+const filtros = reactive({ profesional: '', estado: 'activas', paciente: '', tutor: '', telefono: '' });
+
+/* El panel de filtros se recuerda por navegador (es preferencia de quien está
+   sentado ahí, no de la clínica). En pantallas angostas parte cerrado. */
+function leerPanel() {
+  try {
+    const v = localStorage.getItem('agenda.panel');
+    if (v !== null) return v === '1';
+  } catch { /* sin almacenamiento: se usa el ancho */ }
+  return window.innerWidth > 900;
+}
+const panelAbierto = ref(leerPanel());
+watch(panelAbierto, (v) => { try { localStorage.setItem('agenda.panel', v ? '1' : '0'); } catch { /* nada */ } });
+
+const servicios = ref([]);
 
 /* ── Rango que cubre cada vista ──
    El día ancla manda: la semana es la suya, el mes es el suyo. Así cambiar de
@@ -94,18 +127,13 @@ const rango = computed(() => {
 
 const mesAncla = computed(() => fecha.value.slice(0, 7));
 
-/* ── Búsqueda y filtros ──
-   Client-side a propósito: los datos del rango ya están en memoria, así que
-   filtrar es instantáneo y no manda una consulta por tecla. Alcance = lo que
-   se está viendo; si no hay coincidencias se ofrece ampliar el rango. */
 // Sin tildes y en minúsculas: "nunez" encuentra a "Núñez", que es como se
 // escribe un apellido cuando se busca con prisa en el mesón.
 function norm(s) {
-  return (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return (s || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 // Los teléfonos se comparan solo por dígitos: en la base conviven "+56 9 8765
-// 4321", "56987654321" y "9 8765 4321" para el mismo número, y nadie los teclea
-// igual que como quedaron guardados.
+// 4321", "56987654321" y "9 8765 4321" para el mismo número.
 function soloDigitos(s) {
   return (s || '').toString().replace(/\D/g, '');
 }
@@ -117,39 +145,38 @@ const enRango = computed(() => citas.value.filter((c) => {
   return d >= rango.value.desde && d <= rango.value.hasta;
 }));
 
-/* Campos dirigidos, no un cajón de sastre: buscar "luna" en un campo único
-   devuelve la paciente Luna, la tutora Luna y la Dra. Luna todas mezcladas.
-   Separados, cada uno responde una pregunta sola — mismo criterio que los
-   buscadores de Pacientes y Tutores. Se combinan con Y: los que estén llenos
-   tienen que cumplirse todos. */
+function pasaEstado(c) {
+  if (filtros.estado === 'todas') return true;
+  // «Activas» = las que ocupan o ya ocuparon la hora: sin canceladas ni expiradas.
+  if (filtros.estado === 'activas') return c.estado !== 'Cancelada' && c.estado !== 'Expirada';
+  return c.estado === filtros.estado;
+}
+
 const citasFiltradas = computed(() => {
   const paciente = norm(filtros.paciente.trim());
   const tutor = norm(filtros.tutor.trim());
   const telefono = soloDigitos(filtros.telefono);
-  const consulta = norm(filtros.consulta.trim());
-
   return enRango.value.filter((c) => {
-    if (filtros.especialista && c.especialista?.id !== filtros.especialista) return false;
-    if (filtros.estado && c.estado !== filtros.estado) return false;
+    if (filtros.profesional && (c.especialista?.id || SIN) !== filtros.profesional) return false;
+    if (!pasaEstado(c)) return false;
     if (paciente && !norm(`${c.mascota?.nombre || ''} ${c.mascota?.especie || ''}`).includes(paciente)) return false;
     if (tutor && !norm(`${c.dueno?.nombre || ''} ${c.dueno?.email || ''}`).includes(tutor)) return false;
     if (telefono && !soloDigitos(c.dueno?.telefono).includes(telefono)) return false;
-    if (consulta && !norm(`${c.servicio || ''} ${c.notas_pre_cita || ''}`).includes(consulta)) return false;
     return true;
   });
 });
 
-const hayFiltro = computed(() => Object.values(filtros).some((v) => v.trim?.() ?? v));
+const hayBusqueda = computed(() => !!(filtros.paciente.trim() || filtros.tutor.trim() || filtros.telefono.trim()));
+const hayFiltro = computed(() => hayBusqueda.value || !!filtros.profesional || filtros.estado !== 'activas');
+function limpiarBusqueda() {
+  Object.assign(filtros, { paciente: '', tutor: '', telefono: '' });
+}
 
-/* Los especialistas del catálogo son la lista estable (no cambia al moverse de
-   semana). Solo los activos: la importación del legado (ACVet) dejó 54
-   especialistas inactivos, uno por cada código de médico del sistema anterior
-   ("Médico #6362 (ACVet)"), que no son personal real y llenarían el desplegable
-   — mismo criterio que EspecialistasView. No se pueden borrar: cuelgan de miles
-   de notas clínicas que perderían quién atendió.
-   Se les suman los que aparezcan en las citas del rango: si una cita histórica
-   quedó a nombre de uno de esos códigos, tiene que poder filtrarse mientras
-   está en pantalla. */
+/* Los especialistas del catálogo son la lista estable. Solo los activos: la
+   importación del legado (ACVet) dejó 54 inactivos, uno por cada código de
+   médico del sistema anterior, que no son personal real. Se les suman los que
+   aparezcan en las citas del rango: si una cita histórica quedó a nombre de
+   uno de esos códigos, tiene que poder filtrarse y verse. */
 const opcionesEspecialista = computed(() => {
   const map = new Map();
   for (const e of especialistas.value) if (e.activo) map.set(e.id, e);
@@ -158,25 +185,11 @@ const opcionesEspecialista = computed(() => {
   }
   return [...map.values()];
 });
+const activos = computed(() => especialistas.value.filter((e) => e.activo));
 
-const camposBusqueda = computed(() => [
-  // El primero es el campo grande del componente: el paciente es por lejos lo
-  // que más se busca en el mesón ("¿a qué hora viene Kuyen?").
-  { key: 'paciente', label: 'Paciente', placeholder: 'Buscar por nombre del paciente…' },
-  { key: 'tutor', label: 'Tutor', placeholder: 'Nombre o correo del tutor…' },
-  // Sin autocompletar, igual que en Tutores: un teléfono no se completa de a
-  // poco como un nombre, así que buscar en cada dígito solo estorba.
-  { key: 'telefono', label: 'Teléfono', placeholder: '+56 9 …', autocompletar: false },
-  { key: 'consulta', label: 'Consulta', placeholder: 'Tipo de consulta o nota…' },
-  {
-    key: 'especialista', label: 'Especialista', type: 'select',
-    options: opcionesEspecialista.value.map((e) => ({ value: e.id, label: `${e.emoji || '🩺'} ${e.nombre}` })),
-  },
-  { key: 'estado', label: 'Estado', type: 'select', options: ESTADOS.map((e) => ({ value: e, label: e })) },
-]);
-
-function setFiltros(v) {
-  Object.assign(filtros, v);
+function iniciales(nombre) {
+  const p = (nombre || '').replace(/^(Dr|Dra)\.?\s+/i, '').split(' ').filter(Boolean);
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '?';
 }
 
 /* ── Agrupación por día ── (el backend ya devuelve ordenado por fecha_hora) */
@@ -194,18 +207,80 @@ function citasDe(dia) {
 }
 const citasDelDia = computed(() => citasDe(fecha.value));
 
+/* Columnas del día: los activos en el orden del catálogo (siempre en el mismo
+   lugar, para que recepción no tenga que buscarlos), más quien tenga citas ese
+   día sin estar activo, más «Sin especialista» si hace falta. */
+const columnas = computed(() => {
+  const lista = [];
+  const vistos = new Set();
+  const agregar = (e) => {
+    if (vistos.has(e.id)) return;
+    vistos.add(e.id);
+    lista.push({
+      id: e.id, nombre: e.nombre, especialidad: e.especialidad,
+      foto: retratoDe(e) || urlFoto(e.foto_url) || null, iniciales: iniciales(e.nombre),
+    });
+  };
+  for (const e of activos.value) if (!filtros.profesional || filtros.profesional === e.id) agregar(e);
+  for (const c of citasDelDia.value) {
+    if (c.especialista && (!filtros.profesional || filtros.profesional === c.especialista.id)) agregar(c.especialista);
+  }
+  if (citasDelDia.value.some((c) => !c.especialista) && (!filtros.profesional || filtros.profesional === SIN)) {
+    lista.push({ id: SIN, nombre: 'Sin especialista', especialidad: null, foto: null, iniciales: '—' });
+  }
+  return lista;
+});
+
+const ventanasDelDia = computed(() => {
+  const out = {};
+  for (const [espId, dias] of Object.entries(ventanas.value)) out[espId] = dias[fecha.value] || [];
+  return out;
+});
+function bloqueosEntre(desde, hasta) {
+  // Los que pisan [desde 00:00, hasta + 1 día 00:00).
+  const ini = `${desde}T00:00:00`;
+  const fin = `${sumarDias(hasta, 1)}T00:00:00`;
+  return bloqueos.value.filter((b) => b.inicio < fin && b.fin > ini);
+}
+const bloqueosDelDia = computed(() => bloqueosEntre(fecha.value, fecha.value));
+
+/* Un solo mapa de colores para las tres vistas, calculado sobre TODO lo
+   cargado (días completos, sin filtros): el mismo cálculo que hace Reservas,
+   para que una cita tenga el mismo color en las dos pantallas y no cambie al
+   filtrar ni al pasar de día a semana. Ver colores-agenda.js. */
+const colores = computed(() => colorearCitas(citas.value, modoColor.value));
+
+/* Con colores fijos, la leyenda dice qué es cada uno: solo lo que está a la
+   vista, en el orden del catálogo. Por cita no hay nada que explicar. */
+const leyendaColores = computed(() => {
+  if (modoColor.value === 'cita') return [];
+  const visibles = vista.value === 'dia' ? citasDelDia.value : citasFiltradas.value;
+  const vistos = new Map();
+  for (const c of visibles) {
+    const k = claveDeColor(c);
+    if (!vistos.has(k)) {
+      vistos.set(k, { clave: k, nombre: modoColor.value === 'consulta' ? c.servicio : (c.especialista?.nombre || 'Sin especialista'), color: colores.value.get(c.id) });
+    }
+  }
+  const orden = modoColor.value === 'consulta' ? servicios.value.map((x) => x.id) : opcionesEspecialista.value.map((e) => e.id);
+  return [...vistos.values()].sort((a, b) => {
+    const ia = orden.indexOf(a.clave); const ib = orden.indexOf(b.clave);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+});
+
 const diasDelRango = computed(() => {
   const n = diasEntre(rango.value.desde, rango.value.hasta);
   return Array.from({ length: n + 1 }, (_, i) => sumarDias(rango.value.desde, i));
 });
 
 /* ── Carga ──
-   Una sola llamada por rango: /citas/agenda acepta `hasta` y devuelve el rango
-   completo, así que semana y mes no disparan 7 ni 42 peticiones. */
-// Encadenar flechas dispara varias peticiones a la vez y no siempre vuelven en
-// orden: solo la última pedida puede escribir en pantalla.
+   Una sola llamada por rango para las citas y otra para horarios y bloqueos.
+   Encadenar flechas dispara varias peticiones a la vez y no siempre vuelven en
+   orden: solo la última pedida puede escribir en pantalla. */
 let ultimaCarga = 0;
 const rangoCargado = ref(null);
+const actualizadoEn = ref(null);
 
 // Comparación de strings ISO: YYYY-MM-DD ordena igual como texto que como fecha.
 function cubierto(r) {
@@ -215,33 +290,67 @@ function cubierto(r) {
 async function cargar() {
   const token = ++ultimaCarga;
   // Solo la primera carga vacía la pantalla; de ahí en adelante lo que hay se
-  // atenúa y se reemplaza en su sitio (incluso si el rango anterior no tenía
-  // ninguna cita, la rejilla del calendario sigue siendo información útil).
+  // atenúa y se reemplaza en su sitio.
   refrescando.value = !loading.value;
   error.value = '';
   const { desde, hasta } = rango.value;
-  try {
-    const { data } = await api.get('/citas/agenda', { params: { fecha: desde, hasta } });
-    if (token !== ultimaCarga) return;
-    citas.value = data;
+  const params = { fecha: desde, hasta };
+  const [rc, rd] = await Promise.allSettled([
+    api.get('/citas/agenda', { params }),
+    api.get('/agenda/disponibilidad', { params }),
+  ]);
+  if (token !== ultimaCarga) return;
+  if (rc.status === 'fulfilled') {
+    citas.value = rc.value.data;
     rangoCargado.value = { desde, hasta };
-  } catch (e) {
-    if (token !== ultimaCarga) return;
-    error.value = apiError(e, 'No se pudo cargar la agenda.');
-  } finally {
-    if (token === ultimaCarga) {
-      loading.value = false;
-      refrescando.value = false;
-    }
+    actualizadoEn.value = Date.now();
+  } else {
+    error.value = apiError(rc.reason, 'No se pudo cargar la agenda.');
   }
+  /* Horarios y bloqueos fallan ABIERTO: sin ellos la grilla se ve toda libre,
+     pero las citas siguen ahí. Una base a la que todavía no se le corrió
+     base/cambios/ no puede dejar la Agenda en blanco. */
+  if (rd.status === 'fulfilled') {
+    ventanas.value = rd.value.data.ventanas || {};
+    bloqueos.value = rd.value.data.bloqueos || [];
+    sinDisponibilidad.value = false;
+  } else {
+    ventanas.value = {};
+    bloqueos.value = [];
+    sinDisponibilidad.value = true;
+  }
+  loading.value = false;
+  refrescando.value = false;
+}
+function refrescar() {
+  rangoCargado.value = null;
+  cargar();
 }
 
+/* «Actualizado hace N min»: la agenda se recarga sola cada dos minutos
+   mientras la pestaña está a la vista, porque las reservas del portal llegan
+   sin que nadie toque nada. */
+const reloj = ref(Date.now());
+const etiquetaActualizado = computed(() => {
+  if (!actualizadoEn.value) return '';
+  const min = Math.floor((reloj.value - actualizadoEn.value) / 60000);
+  return min < 1 ? 'Actualizado recién' : `Actualizado hace ${min} min`;
+});
+function recargaSilenciosa() {
+  if (document.visibilityState !== 'visible' || modalNueva.value || modalBloqueo.value || citaReagendando.value || burbuja.value) return;
+  if (Date.now() - (actualizadoEn.value || 0) >= 110000) refrescar();
+}
+const intervaloReloj = setInterval(() => { reloj.value = Date.now(); recargaSilenciosa(); }, 30000);
+document.addEventListener('visibilitychange', recargaSilenciosa);
+onUnmounted(() => {
+  clearInterval(intervaloReloj);
+  document.removeEventListener('visibilitychange', recargaSilenciosa);
+});
+
 /* ── «Sin citas hoy» no es lo mismo que «no hay citas» ──
-   En vista de día se pide SOLO ese día, así que la pantalla no tiene forma de
-   saber que hay horas agendadas más adelante: decía «Sin citas para este día»
-   y parecía que las reservas se habían perdido. Cuando el día sale vacío se
-   busca la próxima, una sola vez y solo en ese caso, para poder decir cuándo
-   es y ofrecer saltar hasta ella. */
+   En vista de día se pide SOLO ese día, así que la pantalla no puede saber que
+   hay horas agendadas más adelante. Cuando el día sale vacío se busca la
+   próxima, una sola vez y solo en ese caso, para ofrecer saltar hasta ella. */
 const proxima = ref(null);
 const buscandoProxima = ref(false);
 const DIAS_LOOKAHEAD = 60;
@@ -255,39 +364,48 @@ async function buscarProxima() {
     const { data } = await api.get('/citas/agenda', {
       params: { fecha: desde, hasta: sumarDias(desde, DIAS_LOOKAHEAD - 1) },
     });
-    // Vienen ordenadas por fecha_hora desde el backend.
     const viva = data.find((c) => c.estado !== 'Cancelada');
-    if (viva) proxima.value = { fecha: viva.fecha_hora.slice(0, 10), total: data.length };
+    if (viva) proxima.value = { fecha: viva.fecha_hora.slice(0, 10) };
   } catch {
     // Es información de cortesía: si falla, la pantalla queda como antes.
   } finally {
     buscandoProxima.value = false;
   }
 }
-
-/* Se dispara solo cuando el día quedó vacío y sin filtros, ya terminada la
-   carga: en el caso normal —día con citas— no cuesta ninguna petición. */
 watch([citasDelDia, loading, hayFiltro], ([lista, cargando, filtro]) => {
   if (vista.value === 'dia' && !cargando && !filtro && !lista.length) buscarProxima();
   else proxima.value = null;
 }, { immediate: true });
 
-/* Reagendar desde la agenda: es la pantalla donde la recepción pasa el día,
-   así que mover una hora tiene que poder hacerse acá y no solo en Reservas.
-   Antes había que cancelar y volver a crear, perdiendo historial y respuestas. */
-const citaReagendando = ref(null);
+/* ── Burbujas: detalle de una cita, de un bloqueo, o qué hacer con un hueco ── */
+const burbuja = ref(null); // { tipo: 'cita'|'bloqueo'|'hueco', dato, rect }
+const confirmandoQuitar = ref(false);
+const quitando = ref(false);
+function abrirBurbuja(tipo, dato, rect) {
+  confirmandoQuitar.value = false;
+  burbuja.value = { tipo, dato, rect };
+}
+const nombreEspecialista = (id) => opcionesEspecialista.value.find((e) => e.id === id)?.nombre || '';
 
+/* Reagendar desde la agenda: es la pantalla donde la recepción pasa el día,
+   así que mover una hora tiene que poder hacerse acá y no solo en Reservas. */
+const citaReagendando = ref(null);
 function puedeReagendar(c) {
   return !!c.servicio_id && !!(c.especialista_id || c.especialista?.id) && c.estado !== 'Cancelada';
 }
-
+function reagendar(c) {
+  burbuja.value = null;
+  citaReagendando.value = c;
+}
 async function alReagendar() {
   citaReagendando.value = null;
-  await cargar();
+  refrescar();
 }
 
 async function cambiarEstado(cita, estado) {
+  if (estado === cita.estado) return;
   if (estado === 'Cancelada' && !confirm(`¿Cancelar la cita de ${cita.mascota.nombre} a las ${hora(cita.fecha_hora)}?`)) {
+    burbuja.value = { ...burbuja.value };   // vuelve a pintar el select con el estado de antes
     return;
   }
   try {
@@ -296,6 +414,42 @@ async function cambiarEstado(cita, estado) {
   } catch (e) {
     error.value = apiError(e, 'No se pudo actualizar el estado.');
   }
+}
+
+async function quitarBloqueo(b) {
+  quitando.value = true;
+  try {
+    await api.delete(`/agenda/bloqueos/${b.id}`);
+    burbuja.value = null;
+    refrescar();
+  } catch (e) {
+    error.value = apiError(e, 'No se pudo quitar el bloqueo.');
+  } finally {
+    quitando.value = false;
+  }
+}
+
+/* ── Crear: cita o bloqueo, desde la cabecera o desde un hueco ── */
+const modalNueva = ref(null);   // { fecha, hora, especialistaId }
+const modalBloqueo = ref(null); // { fecha, hora, especialistaId }
+function nuevaCita(desde = {}) {
+  burbuja.value = null;
+  modalNueva.value = { fecha: desde.fecha || fecha.value, hora: desde.hora || '', especialistaId: desde.especialistaId || '' };
+}
+function nuevoBloqueo(desde = {}) {
+  burbuja.value = null;
+  modalBloqueo.value = {
+    fecha: desde.fecha || fecha.value, hora: desde.hora || '',
+    especialistaId: desde.especialistaId || (filtros.profesional !== SIN ? filtros.profesional : ''),
+  };
+}
+async function alCrearCita() {
+  modalNueva.value = null;
+  refrescar();
+}
+function alCrearBloqueo(_b, { cerrar }) {
+  if (cerrar) modalBloqueo.value = null;
+  refrescar();
 }
 
 /* ── Etiquetas ── */
@@ -311,12 +465,9 @@ function numeroDia(isoStr) {
 function esDeOtroMes(isoStr) {
   return isoStr.slice(0, 7) !== mesAncla.value;
 }
-
 const labelRango = computed(() => {
-  if (vista.value === 'dia') return labelFecha(fecha.value);
-  if (vista.value === 'mes') {
-    return aDate(fecha.value).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
-  }
+  if (vista.value === 'dia') return aDate(fecha.value).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (vista.value === 'mes') return aDate(fecha.value).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
   const a = aDate(rango.value.desde);
   const b = aDate(rango.value.hasta);
   const mismoMes = a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
@@ -324,12 +475,19 @@ const labelRango = computed(() => {
   const fin = b.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' });
   return `${ini} – ${fin}`;
 });
-
 const unidad = computed(() => ({ dia: 'día', semana: 'semana', mes: 'mes' }[vista.value]));
+const totalVisible = computed(() => (vista.value === 'dia' ? citasDelDia.value : citasFiltradas.value)
+  .filter((c) => c.estado !== 'Cancelada' && c.estado !== 'Expirada').length);
+function rangoBloqueo(b) {
+  const f = (s) => s.slice(11, 16);
+  return b.inicio.slice(0, 10) === b.fin.slice(0, 10)
+    ? `${f(b.inicio)} – ${f(b.fin)}`
+    : `${labelFecha(b.inicio.slice(0, 10))}, ${f(b.inicio)} → ${labelFecha(b.fin.slice(0, 10))}, ${f(b.fin)}`;
+}
 
 /* ── Navegación ──
-   Las flechas se mueven en la unidad que se está viendo: un día, una semana o
-   un mes. Cambiar de vista nunca mueve el día ancla. */
+   Las flechas se mueven en la unidad que se está viendo. Cambiar de vista
+   nunca mueve el día ancla. */
 function mover(pasos) {
   if (vista.value === 'mes') fecha.value = sumarMeses(fecha.value, pasos);
   else fecha.value = sumarDias(fecha.value, pasos * (vista.value === 'semana' ? 7 : 1));
@@ -338,421 +496,491 @@ function irADia(dia) {
   fecha.value = dia;
   vista.value = 'dia';
 }
-function abrirNueva(dia) {
-  fechaNueva.value = dia || fecha.value;
-  modalNueva.value = true;
-}
-async function alCrearCita() {
-  modalNueva.value = false;
-  await cargar();
+function imprimir() {
+  window.print();
 }
 
-/* ── Indicador de "ahora" (solo tiene sentido en la vista de día, viendo hoy) ── */
+/* ── «Ahora» ── */
 const esHoy = computed(() => fecha.value === hoy());
-const horaActualMin = ref(minutosDeAhora());
-function minutosDeAhora() {
-  const n = new Date();
+const ahoraMin = computed(() => {
+  if (!esHoy.value) return null;
+  const n = new Date(reloj.value);
   return n.getHours() * 60 + n.getMinutes();
-}
-function minutosDeCita(dt) {
-  const d = new Date(dt);
-  return d.getHours() * 60 + d.getMinutes();
-}
-const intervaloAhora = setInterval(() => { horaActualMin.value = minutosDeAhora(); }, 60000);
-onUnmounted(() => clearInterval(intervaloAhora));
-
-// Índice de la primera cita cuya hora ya pasó el "ahora" — el separador va justo antes.
-const indiceAhora = computed(() => {
-  if (!esHoy.value || vista.value !== 'dia') return -1;
-  const lista = citasDelDia.value;
-  for (let i = 0; i < lista.length; i++) {
-    if (minutosDeCita(lista[i].fecha_hora) >= horaActualMin.value) return i;
-  }
-  return lista.length; // "ahora" es después de la última cita
 });
+
+/* Al llegar a un día, la grilla se desplaza a lo que importa: la hora actual
+   si es hoy, si no la primera cita o el primer horario. Solo al cambiar de día
+   o de vista: una recarga automática no puede mover a quien está mirando. */
+const scroller = ref(null);
+const grilla = ref(null);
+let diaDesplazado = '';
+async function desplazarAlDia() {
+  if (vista.value !== 'dia' || loading.value || diaDesplazado === fecha.value) return;
+  await nextTick();
+  if (!scroller.value || !grilla.value) return;
+  diaDesplazado = fecha.value;
+  let objetivo = ahoraMin.value;
+  if (objetivo === null) {
+    const primeras = [
+      ...citasDelDia.value.map((c) => { const d = new Date(c.fecha_hora); return d.getHours() * 60 + d.getMinutes(); }),
+      ...Object.values(ventanasDelDia.value).flat().map((v) => { const [h, m] = v.desde.split(':').map(Number); return h * 60 + m; }),
+    ];
+    objetivo = primeras.length ? Math.min(...primeras) : 9 * 60;
+  }
+  scroller.value.scrollTop = Math.max(0, grilla.value.yDe(objetivo) - 46);
+}
+watch([loading, fecha, vista], () => { if (vista.value !== 'dia') diaDesplazado = ''; desplazarAlDia(); });
 
 /* Solo se pide al backend lo que todavía no está en memoria: cerrar el zoom
    (mes → semana → día sobre el mismo día ancla) se resuelve recortando lo ya
-   cargado, sin ninguna petición. Ampliarlo o cambiarse de semana/mes sí la
-   dispara. */
+   cargado, sin ninguna petición. */
 watch(rango, (r) => { if (!cubierto(r)) cargar(); });
-
 watch([vista, fecha], () => {
+  burbuja.value = null;
   router.replace({ query: { ...route.query, vista: vista.value, fecha: fecha.value } });
 });
 
 onMounted(async () => {
   router.replace({ query: { ...route.query, vista: vista.value, fecha: fecha.value } });
   cargar();
-  try {
-    const { data } = await api.get('/catalogo/especialistas/todos');
-    especialistas.value = data;
-  } catch {
-    // Sin catálogo el filtro igual funciona con los especialistas de las citas.
-  }
+  const [re, rs] = await Promise.allSettled([
+    api.get('/catalogo/especialistas/todos'),
+    api.get('/catalogo/servicios/todos'),
+  ]);
+  // Sin catálogo, las columnas salen de los especialistas de las citas, y los
+  // colores fijos caen al color de respaldo de cada clave.
+  if (re.status === 'fulfilled') especialistas.value = re.value.data;
+  if (rs.status === 'fulfilled') servicios.value = rs.value.data;
+  fijarCatalogoColores({ servicios: servicios.value, especialistas: especialistas.value });
 });
 </script>
 
 <template>
-  <div class="page">
-    <div class="head-row">
-      <div>
-        <h1 class="page-title">Agenda</h1>
-        <p class="page-sub label-rango">
-          {{ labelRango }}
-          <span class="conteo">· {{ citasFiltradas.length }} {{ citasFiltradas.length === 1 ? 'cita' : 'citas' }}</span>
-        </p>
-      </div>
-      <div class="head-actions">
-        <div class="segmented" role="group" aria-label="Alcance de la agenda">
-          <button
-            v-for="v in VISTAS" :key="v.id"
-            class="seg-btn" :class="{ active: vista === v.id }"
-            :aria-pressed="vista === v.id"
-            @click="vista = v.id"
-          >{{ v.label }}</button>
-        </div>
-        <div class="date-nav">
-          <button class="btn btn-ghost btn-sm" @click="mover(-1)" :aria-label="`${unidad} anterior`" :title="`${unidad} anterior`">←</button>
-          <input type="date" class="input date-input" v-model="fecha" aria-label="Fecha de la agenda" />
-          <button class="btn btn-ghost btn-sm" @click="mover(1)" :aria-label="`${unidad} siguiente`" :title="`${unidad} siguiente`">→</button>
-          <button class="btn btn-ghost btn-sm" @click="fecha = hoy()">Hoy</button>
-        </div>
-        <button class="btn btn-primary btn-sm" @click="abrirNueva()">+ Nueva cita</button>
-      </div>
-    </div>
-
-    <BuscadorAvanzado :campos="camposBusqueda" :model-value="filtros" @update:model-value="setFiltros" />
-
-    <p v-if="error" class="error-text">{{ error }}</p>
-    <p v-if="loading" class="empty">Cargando agenda…</p>
-
-    <div v-else class="vista-wrap" :class="{ atenuado: refrescando }">
-      <!-- ── DÍA ─────────────────────────────────────────────────────── -->
-      <template v-if="vista === 'dia'">
-        <div v-if="!citasDelDia.length" class="empty">
-          {{ hayFiltro ? 'Sin coincidencias en este día.' : 'Sin citas para este día.' }}
-          <button v-if="hayFiltro" class="btn btn-ghost btn-sm ampliar" @click="vista = 'mes'">Buscar en el mes</button>
-          <p v-else-if="proxima" class="proxima-nota">
-            La próxima es el <strong>{{ labelFecha(proxima.fecha) }}</strong>.
-            <button class="btn btn-ghost btn-sm ampliar" @click="fecha = proxima.fecha">Ir a ese día</button>
-            <button class="btn btn-ghost btn-sm ampliar" @click="vista = 'mes'">Ver el mes</button>
-          </p>
-        </div>
-
-        <div v-else class="agenda-list">
-          <template v-for="(c, i) in citasDelDia" :key="c.id">
-            <div v-if="i === indiceAhora" class="ahora-linea">
-              <span class="ahora-punto"></span><span class="ahora-texto">Ahora</span><span class="ahora-raya"></span>
-            </div>
-
-            <article class="card agenda-item" :class="{ off: c.estado === 'Cancelada' }">
-              <div class="ag-hora">{{ hora(c.fecha_hora) }}</div>
-              <img class="ag-especie-ic" :src="urlFoto(c.mascota.foto_url) || fotoEspecie(c.mascota.especie)" :alt="c.mascota.especie" />
-              <div class="ag-main">
-                <div class="ag-top">
-                  <strong>{{ c.mascota.nombre }}</strong>
-                  <span class="ag-especie">{{ c.mascota.especie }}</span>
-                  <span v-if="c.mascota.alergias" class="badge alergia" :title="c.mascota.alergias">⚠ {{ c.mascota.alergias }}</span>
-                  <span class="badge" :class="c.estado">{{ c.estado }}</span>
-                </div>
-                <p class="ag-servicio">
-                  {{ c.servicio }}
-                  <template v-if="c.especialista"> · {{ c.especialista.emoji }} {{ c.especialista.nombre }}</template>
-                </p>
-                <p class="ag-dueno">
-                  {{ c.dueno.nombre }}
-                  <template v-if="c.dueno.telefono"> · {{ c.dueno.telefono }}</template>
-                </p>
-                <p v-if="c.notas_pre_cita" class="ag-notas">"{{ c.notas_pre_cita }}"</p>
-              </div>
-              <div class="ag-actions">
-                <select
-                  class="select estado-select"
-                  :value="c.estado"
-                  @change="cambiarEstado(c, $event.target.value)"
-                  :aria-label="`Estado de la cita de ${c.mascota.nombre}`"
-                >
-                  <option v-for="e in ESTADOS" :key="e">{{ e }}</option>
-                </select>
-                <button
-                  v-if="puedeReagendar(c)"
-                  type="button"
-                  class="btn btn-ghost btn-sm"
-                  @click="citaReagendando = c"
-                >Reagendar</button>
-                <RouterLink :to="`/ficha/${c.mascota.id}`" class="btn btn-primary btn-sm">Abrir ficha</RouterLink>
-              </div>
-            </article>
-          </template>
-
-          <div v-if="indiceAhora === citasDelDia.length" class="ahora-linea">
-            <span class="ahora-punto"></span><span class="ahora-texto">Ahora</span><span class="ahora-raya"></span>
-          </div>
-        </div>
-      </template>
-
-      <!-- ── SEMANA ──────────────────────────────────────────────────── -->
-      <div v-else-if="vista === 'semana'" class="semana-grid">
-        <section
-          v-for="d in diasDelRango" :key="d"
-          class="col-dia card" :class="{ hoy: d === hoy() }"
-        >
-          <header class="col-head">
-            <button class="col-fecha" @click="irADia(d)" :title="`Ver ${labelFecha(d)}`">
-              <span class="col-dow">{{ DIAS_CORTOS[(aDate(d).getDay() + 6) % 7] }}</span>
-              <span class="col-num">{{ numeroDia(d) }}</span>
-            </button>
-            <span class="col-conteo">{{ citasDe(d).length }}</span>
-            <button class="col-mas" @click="abrirNueva(d)" :aria-label="`Nueva cita el ${labelFecha(d)}`" title="Nueva cita">+</button>
-          </header>
-
-          <p v-if="!citasDe(d).length" class="col-vacio">—</p>
-          <RouterLink
-            v-for="c in citasDe(d)" :key="c.id"
-            :to="`/ficha/${c.mascota.id}`"
-            class="mini" :class="c.estado"
-            :title="`${hora(c.fecha_hora)} · ${c.mascota.nombre} · ${c.servicio}${c.especialista ? ' · ' + c.especialista.nombre : ''}`"
-          >
-            <span class="mini-hora">{{ hora(c.fecha_hora) }}</span>
-            <strong class="mini-nombre">{{ c.mascota.nombre }}</strong>
-            <span class="mini-detalle">
-              <template v-if="c.especialista">{{ c.especialista.emoji }} </template>{{ c.servicio }}
-            </span>
-          </RouterLink>
-        </section>
+  <div class="agenda" :class="{ 'panel-cerrado': !panelAbierto }">
+    <!-- ── Filtros ─────────────────────────────────────────────────────── -->
+    <div v-if="panelAbierto" class="filtros-fondo" @click="panelAbierto = false"></div>
+    <aside id="agenda-filtros" class="filtros" aria-label="Filtros de la agenda">
+      <div class="filtros-cab">
+        <h1 class="filtros-titulo">Agenda</h1>
+        <button type="button" class="ic-btn" aria-label="Ocultar filtros" title="Ocultar filtros" @click="panelAbierto = false">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5M18 17l-5-5 5-5" /></svg>
+        </button>
       </div>
 
-      <!-- ── MES ─────────────────────────────────────────────────────── -->
-      <div v-else class="mes">
-        <div class="mes-dows">
-          <span v-for="d in DIAS_CORTOS" :key="d">{{ d }}</span>
+      <div class="campo">
+        <span class="et" id="et-vista">Vista</span>
+        <div class="segmentado" role="group" aria-labelledby="et-vista">
+          <button v-for="v in VISTAS" :key="v.id" type="button" class="seg" :class="{ activo: vista === v.id }"
+            :aria-pressed="vista === v.id" @click="vista = v.id">{{ v.label }}</button>
         </div>
-        <div class="mes-grid">
-          <section
-            v-for="d in diasDelRango" :key="d"
-            class="celda" :class="{ hoy: d === hoy(), fuera: esDeOtroMes(d), 'con-citas': citasDe(d).length }"
-          >
-            <header class="celda-head">
-              <button class="celda-num" @click="irADia(d)" :title="`Ver ${labelFecha(d)}`">{{ numeroDia(d) }}</button>
-              <span v-if="citasDe(d).length" class="celda-conteo">{{ citasDe(d).length }}</span>
+      </div>
+
+      <label class="campo">
+        <span class="et">Profesional</span>
+        <select v-model="filtros.profesional" class="select">
+          <option value="">Todos</option>
+          <option v-for="e in opcionesEspecialista" :key="e.id" :value="e.id">{{ e.nombre }}</option>
+        </select>
+      </label>
+
+      <label class="campo">
+        <span class="et">Estado de la reserva</span>
+        <select v-model="filtros.estado" class="select">
+          <option value="activas">Reservas activas</option>
+          <option value="todas">Todas, con canceladas</option>
+          <option v-for="e in ESTADOS" :key="e" :value="e">Solo: {{ ESTADO_VISIBLE[e].texto.toLowerCase() }}</option>
+        </select>
+      </label>
+
+      <div class="campo">
+        <span class="et">Buscar en la agenda</span>
+        <input v-model="filtros.paciente" type="search" class="input" placeholder="Paciente" aria-label="Buscar por paciente" />
+        <input v-model="filtros.tutor" type="search" class="input" placeholder="Tutor o correo" aria-label="Buscar por tutor" />
+        <input v-model="filtros.telefono" type="search" inputmode="tel" class="input" placeholder="Teléfono" aria-label="Buscar por teléfono" />
+        <button v-if="hayBusqueda" type="button" class="limpiar" @click="limpiarBusqueda">Limpiar búsqueda</button>
+      </div>
+
+      <label class="campo">
+        <span class="et">Color de las citas</span>
+        <select v-model="modoColor" class="select">
+          <option v-for="m in MODOS_COLOR" :key="m.id" :value="m.id">{{ m.label }}</option>
+        </select>
+      </label>
+      <ul v-if="leyendaColores.length" class="leyenda-colores" :aria-label="modoColor === 'consulta' ? 'Color de cada consulta' : 'Color de cada especialista'">
+        <li v-for="l in leyendaColores" :key="l.clave">
+          <span class="muestra" :style="{ background: l.color?.fondo, borderColor: l.color?.borde }" aria-hidden="true"></span>
+          {{ l.nombre }}
+        </li>
+      </ul>
+
+      <MiniCalendario v-model="fecha" class="mini-cal" />
+
+      <div class="leyenda" aria-label="Cómo leer la agenda">
+        <span v-for="e in ['Agendada', 'Confirmada', 'Completada', 'Cancelada']" :key="e" class="ley">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="ESTADO_VISIBLE[e].icono" /></svg>
+          {{ ESTADO_VISIBLE[e].texto }}
+        </span>
+        <span class="ley"><span class="muestra rayada" aria-hidden="true"></span>Bloqueado</span>
+        <span class="ley"><span class="muestra gris" aria-hidden="true"></span>Fuera de horario</span>
+      </div>
+    </aside>
+
+    <!-- ── Tablero ─────────────────────────────────────────────────────── -->
+    <section class="tablero" aria-labelledby="agenda-fecha">
+      <header class="tab-cab">
+        <button v-if="!panelAbierto" type="button" class="ic-btn" aria-label="Mostrar filtros" aria-controls="agenda-filtros"
+          title="Mostrar filtros" @click="panelAbierto = true">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" :disabled="esHoy && vista === 'dia'" @click="fecha = hoy()">Hoy</button>
+        <div class="flechas">
+          <button type="button" class="ic-btn" :aria-label="`${unidad} anterior`" :title="`${unidad} anterior`" @click="mover(-1)">‹</button>
+          <button type="button" class="ic-btn" :aria-label="`${unidad} siguiente`" :title="`${unidad} siguiente`" @click="mover(1)">›</button>
+        </div>
+        <div class="tab-fecha">
+          <h2 id="agenda-fecha">{{ labelRango }}</h2>
+          <span>{{ totalVisible }} {{ totalVisible === 1 ? 'cita' : 'citas' }}<template v-if="hayFiltro"> con estos filtros</template></span>
+        </div>
+
+        <div class="tab-der">
+          <span class="actualizado" aria-live="polite">{{ etiquetaActualizado }}</span>
+          <button type="button" class="ic-btn" :class="{ girando: refrescando }" aria-label="Actualizar la agenda" title="Actualizar" @click="refrescar">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8m0-4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16m0 4v-4h-4" /></svg>
+          </button>
+          <button type="button" class="ic-btn" aria-label="Imprimir la agenda" title="Imprimir" @click="imprimir">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z" /></svg>
+          </button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="nuevoBloqueo()">Bloquear horario</button>
+          <button type="button" class="btn btn-primary btn-sm" @click="nuevaCita()">+ Nueva cita</button>
+        </div>
+      </header>
+
+      <p v-if="error" class="aviso error" role="alert">{{ error }}</p>
+      <p v-if="sinDisponibilidad && !loading" class="aviso">
+        No se pudieron cargar los horarios ni los bloqueos: la grilla muestra todo como disponible.
+      </p>
+      <p v-if="vista === 'dia' && !loading && !citasDelDia.length" class="aviso suave">
+        <template v-if="hayFiltro">Sin coincidencias este día. <button type="button" class="enlace" @click="vista = 'mes'">Buscar en el mes</button></template>
+        <template v-else-if="proxima">Sin citas este día. La próxima es el <strong>{{ labelFecha(proxima.fecha) }}</strong>. <button type="button" class="enlace" @click="fecha = proxima.fecha">Ir a ese día</button></template>
+        <template v-else>Sin citas este día.</template>
+      </p>
+
+      <!-- Esqueleto: la forma de la grilla mientras llega la primera carga. -->
+      <div v-if="loading" class="esqueleto" aria-busy="true" aria-label="Cargando la agenda">
+        <div v-for="i in 4" :key="i" class="esq-col"><span class="esq-cab"></span><span class="esq-b" style="top: 18%"></span><span class="esq-b" style="top: 46%"></span></div>
+      </div>
+
+      <!-- ── DÍA ── -->
+      <div v-else-if="vista === 'dia'" ref="scroller" class="scroller" :class="{ atenuado: refrescando }">
+        <GrillaDia
+          ref="grilla"
+          :columnas="columnas" :citas="citasDelDia" :colores="colores"
+          :ventanas="ventanasDelDia" :bloqueos="bloqueosDelDia" :fecha="fecha" :ahora-min="ahoraMin"
+          @cita="(c, r) => abrirBurbuja('cita', c, r)"
+          @bloqueo="(b, r) => abrirBurbuja('bloqueo', b, r)"
+          @hueco="(h) => abrirBurbuja('hueco', h, h.rect)"
+        />
+        <p v-if="!columnas.length" class="vacio-grilla">No hay especialistas activos para mostrar.</p>
+      </div>
+
+      <!-- ── SEMANA ── -->
+      <div v-else-if="vista === 'semana'" class="pagina" :class="{ atenuado: refrescando }">
+        <div class="semana-grid">
+          <section v-for="d in diasDelRango" :key="d" class="col-dia" :class="{ hoy: d === hoy() }">
+            <header class="col-head">
+              <button type="button" class="col-fecha" :title="`Ver ${labelFecha(d)}`" @click="irADia(d)">
+                <span class="col-dow">{{ DIAS_CORTOS[(aDate(d).getDay() + 6) % 7] }}</span>
+                <span class="col-num">{{ numeroDia(d) }}</span>
+              </button>
+              <span class="col-conteo">{{ citasDe(d).length }}</span>
+              <button type="button" class="col-mas" :aria-label="`Nueva cita el ${labelFecha(d)}`" title="Nueva cita" @click="nuevaCita({ fecha: d })">+</button>
             </header>
-            <RouterLink
-              v-for="c in citasDe(d).slice(0, 3)" :key="c.id"
-              :to="`/ficha/${c.mascota.id}`"
-              class="mini compacta" :class="c.estado"
-              :title="`${hora(c.fecha_hora)} · ${c.mascota.nombre} · ${c.servicio}`"
+            <button v-for="b in bloqueosEntre(d, d)" :key="b.id" type="button" class="chip-bloqueo"
+              @click="abrirBurbuja('bloqueo', b, $event.currentTarget.getBoundingClientRect())">
+              <span>{{ b.inicio.slice(0, 10) === d ? b.inicio.slice(11, 16) : '00:00' }}–{{ b.fin.slice(0, 10) === d ? b.fin.slice(11, 16) : '24:00' }}</span>
+              {{ b.motivo }}<template v-if="b.especialista_id"> · {{ nombreEspecialista(b.especialista_id) }}</template>
+            </button>
+            <p v-if="!citasDe(d).length" class="col-vacio">—</p>
+            <button
+              v-for="c in citasDe(d)" :key="c.id" type="button" class="mini" :class="{ apagada: c.estado === 'Cancelada' || c.estado === 'Expirada' }"
+              :style="{ '--c-fondo': colores.get(c.id)?.fondo, '--c-borde': colores.get(c.id)?.borde, '--c-tinta': colores.get(c.id)?.tinta }"
+              :aria-label="`${hora(c.fecha_hora)}, ${c.mascota.nombre}, ${c.servicio}, ${ESTADO_VISIBLE[c.estado]?.texto || c.estado}`"
+              @click="abrirBurbuja('cita', c, $event.currentTarget.getBoundingClientRect())"
             >
-              <span class="mini-hora">{{ hora(c.fecha_hora) }}</span>
-              <strong class="mini-nombre">{{ c.mascota.nombre }}</strong>
-            </RouterLink>
-            <button v-if="citasDe(d).length > 3" class="celda-mas" @click="irADia(d)">
-              +{{ citasDe(d).length - 3 }} más
+              <span class="mini-l1">
+                <span class="mini-hora">{{ hora(c.fecha_hora) }}</span>
+                <strong class="mini-nombre">{{ c.mascota.nombre }}</strong>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="ESTADO_VISIBLE[c.estado]?.icono || ESTADO_VISIBLE.Agendada.icono" /></svg>
+              </span>
+              <span class="mini-detalle">{{ c.servicio }}<template v-if="c.especialista"> · {{ c.especialista.nombre }}</template></span>
             </button>
           </section>
         </div>
+        <p v-if="!citasFiltradas.length" class="aviso suave">{{ hayFiltro ? 'Sin coincidencias esta semana.' : 'Sin citas esta semana.' }}</p>
       </div>
 
-      <p v-if="vista !== 'dia' && !citasFiltradas.length" class="empty">
-        {{ hayFiltro ? `Sin coincidencias en ${vista === 'semana' ? 'esta semana' : 'este mes'}.` : `Sin citas en ${vista === 'semana' ? 'esta semana' : 'este mes'}.` }}
-      </p>
-    </div>
+      <!-- ── MES ── -->
+      <div v-else class="pagina" :class="{ atenuado: refrescando }">
+        <div class="mes-dows" aria-hidden="true"><span v-for="d in DIAS_CORTOS" :key="d">{{ d }}</span></div>
+        <div class="mes-grid">
+          <section v-for="d in diasDelRango" :key="d" class="celda"
+            :class="{ hoy: d === hoy(), fuera: esDeOtroMes(d), bloqueado: bloqueosEntre(d, d).length }">
+            <header class="celda-head">
+              <button type="button" class="celda-num" :title="`Ver ${labelFecha(d)}`" @click="irADia(d)">{{ numeroDia(d) }}</button>
+              <span v-if="citasDe(d).length" class="celda-conteo">{{ citasDe(d).length }}</span>
+            </header>
+            <button
+              v-for="c in citasDe(d).slice(0, 3)" :key="c.id" type="button" class="mini compacta"
+              :class="{ apagada: c.estado === 'Cancelada' || c.estado === 'Expirada' }"
+              :style="{ '--c-fondo': colores.get(c.id)?.fondo, '--c-borde': colores.get(c.id)?.borde, '--c-tinta': colores.get(c.id)?.tinta }"
+              :aria-label="`${hora(c.fecha_hora)}, ${c.mascota.nombre}, ${c.servicio}`"
+              @click="abrirBurbuja('cita', c, $event.currentTarget.getBoundingClientRect())"
+            >
+              <span class="mini-hora">{{ hora(c.fecha_hora) }}</span>
+              <strong class="mini-nombre">{{ c.mascota.nombre }}</strong>
+            </button>
+            <button v-if="citasDe(d).length > 3" type="button" class="celda-mas" @click="irADia(d)">+{{ citasDe(d).length - 3 }} más</button>
+          </section>
+        </div>
+        <p v-if="!citasFiltradas.length" class="aviso suave">{{ hayFiltro ? 'Sin coincidencias este mes.' : 'Sin citas este mes.' }}</p>
+      </div>
+    </section>
+
+    <!-- ── Burbujas ── -->
+    <Burbuja v-if="burbuja" :key="burbuja.tipo + (burbuja.dato.id || burbuja.dato.hora)" :ancla="burbuja.rect"
+      :etiqueta="burbuja.tipo === 'cita' ? 'Detalle de la cita' : burbuja.tipo === 'bloqueo' ? 'Horario bloqueado' : 'Hora libre'"
+      :ancho="burbuja.tipo === 'hueco' ? 280 : 330" @cerrar="burbuja = null">
+      <DetalleCita
+        v-if="burbuja.tipo === 'cita'" :cita="burbuja.dato"
+        :color="colores.get(burbuja.dato.id)"
+        :puede-reagendar="puedeReagendar(burbuja.dato)"
+        @estado="(e) => cambiarEstado(burbuja.dato, e)" @reagendar="reagendar(burbuja.dato)"
+      />
+
+      <div v-else-if="burbuja.tipo === 'bloqueo'" class="bq">
+        <p class="bq-cuando">{{ rangoBloqueo(burbuja.dato) }}</p>
+        <h3 class="bq-motivo">{{ burbuja.dato.motivo }}</h3>
+        <p class="bq-meta">
+          {{ burbuja.dato.especialista_id ? nombreEspecialista(burbuja.dato.especialista_id) : 'Toda la clínica' }}
+          <template v-if="burbuja.dato.creado_por"> · lo puso {{ burbuja.dato.creado_por }}</template>
+        </p>
+        <p class="bq-meta">Esas horas no se ofrecen en el portal de reservas.</p>
+        <div v-if="!confirmandoQuitar" class="bq-acciones">
+          <button type="button" class="btn btn-ghost btn-sm" @click="confirmandoQuitar = true">Quitar bloqueo</button>
+        </div>
+        <div v-else class="bq-acciones">
+          <span class="bq-pregunta">¿Volver a abrir esas horas?</span>
+          <button type="button" class="btn btn-danger btn-sm" :disabled="quitando" @click="quitarBloqueo(burbuja.dato)">{{ quitando ? 'Quitando…' : 'Sí, quitar' }}</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="confirmandoQuitar = false">No</button>
+        </div>
+      </div>
+
+      <div v-else class="hueco">
+        <p class="hueco-cuando"><strong>{{ burbuja.dato.hora }}</strong> · {{ burbuja.dato.columna.nombre }}</p>
+        <p v-if="!burbuja.dato.dentroDeHorario" class="hueco-nota">Fuera de su horario de atención.</p>
+        <button type="button" class="btn btn-primary btn-sm"
+          @click="nuevaCita({ fecha, hora: burbuja.dato.hora, especialistaId: burbuja.dato.columna.id })">Nueva cita a las {{ burbuja.dato.hora }}</button>
+        <button type="button" class="btn btn-ghost btn-sm"
+          @click="nuevoBloqueo({ fecha, hora: burbuja.dato.hora, especialistaId: burbuja.dato.columna.id })">Bloquear desde las {{ burbuja.dato.hora }}</button>
+      </div>
+    </Burbuja>
 
     <NuevaCitaModal
-      v-if="modalNueva"
-      :fecha-inicial="fechaNueva"
-      @close="modalNueva = false"
-      @creada="alCrearCita"
+      v-if="modalNueva" :fecha-inicial="modalNueva.fecha"
+      :especialista-inicial="modalNueva.especialistaId" :hora-inicial="modalNueva.hora"
+      @close="modalNueva = null" @creada="alCrearCita"
+    />
+    <BloqueoModal
+      v-if="modalBloqueo" :especialistas="activos" :fecha="modalBloqueo.fecha"
+      :hora="modalBloqueo.hora" :especialista-id="modalBloqueo.especialistaId"
+      @close="modalBloqueo = null" @creado="alCrearBloqueo"
+    />
+    <ReagendarCitaModal
+      v-if="citaReagendando" :cita="citaReagendando"
+      @close="citaReagendando = null" @reagendada="alReagendar"
     />
   </div>
-
-  <ReagendarCitaModal
-    v-if="citaReagendando"
-    :cita="citaReagendando"
-    @close="citaReagendando = null"
-    @reagendada="alReagendar"
-  />
 </template>
 
 <style scoped>
-.head-row { align-items: flex-end; margin-bottom: 1rem; }
-/* Solo la inicial: `capitalize` deja "10 De Agosto De 2026", que no es como
-   se escribe una fecha en español. */
-.label-rango { margin-bottom: 0; }
-.label-rango::first-letter { text-transform: uppercase; }
-.conteo { color: var(--ink-soft); font-size: var(--t-base); }
-.head-actions { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
-.date-nav { display: flex; gap: 0.4rem; align-items: center; }
-.date-input { width: auto; padding: 0.45em 0.7em; }
-
-/* Selector de alcance: un solo control, en el sitio donde se está mirando la
-   agenda — cambiar de día a semana o mes no navega a otra pantalla. */
-.segmented {
-  display: inline-flex; padding: 3px; gap: 2px;
-  background: var(--bg); border: 1.5px solid var(--line-strong);
-  border-radius: var(--r-full);
+.agenda {
+  --ancho-filtros: 264px;
+  display: grid; grid-template-columns: var(--ancho-filtros) minmax(0, 1fr);
+  height: calc(100dvh - var(--alto-barra));
+  background: var(--surface);
 }
-.seg-btn {
-  font-size: var(--t-sm); font-weight: 600; color: var(--ink-soft);
-  padding: 0.35em 0.95em; border-radius: var(--r-full);
-  transition: background 0.18s, color 0.18s;
-}
-.seg-btn:hover { background: var(--accent-tint); color: var(--accent-strong); }
-.seg-btn.active { background: var(--brand); color: #fff; }
+.agenda.panel-cerrado { grid-template-columns: 0 minmax(0, 1fr); }
+.agenda.panel-cerrado .filtros { visibility: hidden; }
 
-/* La recarga no vacía la pantalla: los datos viejos se atenúan y son
-   reemplazados en su sitio, para que el cambio de alcance se lea como un
-   zoom y no como una pantalla nueva. */
-.vista-wrap { transition: opacity 0.18s; }
-.vista-wrap.atenuado { opacity: 0.45; }
-.ampliar { margin-left: 0.6rem; }
-
-/* ── Día ── */
-.ahora-linea { display: flex; align-items: center; gap: 0.5rem; margin: 0.3rem 0; }
-.ahora-punto { width: 9px; height: 9px; border-radius: 50%; background: #dc2626; flex: none; }
-.ahora-texto { font-size: var(--t-micro); font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 0.03em; }
-.ahora-raya { flex: 1; height: 2px; background: #dc2626; opacity: 0.35; }
-
-.agenda-list { display: flex; flex-direction: column; gap: 0.8rem; }
-.agenda-item { display: flex; gap: 1.2rem; align-items: flex-start; }
-.agenda-item.off { opacity: 0.55; }
-.ag-hora {
-  font-weight: 700; font-size: var(--t-lg); color: var(--brand-ink);
-  background: var(--brand-tint); border-radius: var(--r-md);
-  padding: 0.4em 0.7em; flex: none;
+/* ── Filtros ── */
+.filtros {
+  display: flex; flex-direction: column; gap: 0.95rem;
+  padding: 0.9rem 0.95rem 1.2rem; overflow-y: auto;
+  background: var(--bg); border-right: 1px solid var(--line);
 }
-.ag-especie-ic {
-  flex: none; align-self: center;
-  width: 42px; height: 42px; object-fit: cover;
-  background: var(--bg); border-radius: 50%;
+.filtros-fondo { display: none; }
+.filtros-cab { display: flex; align-items: center; justify-content: space-between; }
+.filtros-titulo { font-size: var(--t-xl); font-weight: 700; color: var(--brand-ink); }
+.campo { display: flex; flex-direction: column; gap: 0.35rem; }
+.et { font-size: var(--t-micro); font-weight: 600; color: var(--ink-soft); }
+.campo .select, .campo .input { width: 100%; padding: 0.45em 0.65em; font-size: var(--t-sm); background: var(--surface); }
+.segmentado {
+  display: grid; grid-template-columns: repeat(3, 1fr); padding: 3px; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm);
 }
-.ag-main { flex: 1; min-width: 0; }
-.ag-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.ag-top strong { font-size: var(--t-lg); }
-.ag-especie { color: var(--ink-soft); font-size: var(--t-sm); text-transform: capitalize; }
-.ag-servicio { font-size: var(--t-base); margin-top: 0.15rem; }
-.ag-dueno { color: var(--ink-soft); font-size: var(--t-sm); margin-top: 0.1rem; }
-.ag-notas { color: var(--ink-soft); font-style: italic; font-size: var(--t-sm); margin-top: 0.3rem; }
-.ag-actions { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; flex: none; }
-.estado-select { padding: 0.45em 0.7em; font-size: var(--t-sm); }
+.seg { font-size: var(--t-sm); font-weight: 600; color: var(--ink-soft); padding: 0.32em 0; border-radius: 6px; transition: background 0.15s ease-out, color 0.15s ease-out; }
+.seg:hover { background: var(--accent-hover); color: var(--ink); }
+.seg.activo { background: var(--brand); color: #fff; }
+.limpiar { align-self: flex-start; font-size: var(--t-micro); font-weight: 600; color: var(--accent-strong); }
+.limpiar:hover { text-decoration: underline; }
+.mini-cal { padding-top: 0.2rem; border-top: 1px solid var(--line); }
+.leyenda { display: flex; flex-wrap: wrap; gap: 0.35rem 0.8rem; padding-top: 0.7rem; border-top: 1px solid var(--line); }
+.ley { display: inline-flex; align-items: center; gap: 0.3rem; font-size: var(--t-micro); color: var(--ink-soft); }
+.muestra { width: 13px; height: 13px; border-radius: 3px; border: 1px solid var(--line-strong); }
+.muestra.rayada { background: repeating-linear-gradient(135deg, var(--bg) 0 3px, color-mix(in oklab, var(--ink) 14%, var(--surface)) 3px 4px); }
+.muestra.gris { background: color-mix(in oklab, var(--ink) 7%, var(--surface)); }
+.leyenda-colores { list-style: none; padding: 0; margin: -0.35rem 0 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.leyenda-colores li { display: flex; align-items: center; gap: 0.45rem; font-size: var(--t-micro); color: var(--ink); min-width: 0; }
+.leyenda-colores .muestra { flex: none; }
 
-.badge.alergia {
-  background: #fef2f2; color: #991b1b; border: 1px solid #fecaca;
-  font-size: var(--t-micro); font-weight: 600; padding: 0.15em 0.6em; border-radius: var(--r-full);
+/* ── Tablero ── */
+.tablero { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.tab-cab {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+  padding: 0.6rem 1rem; border-bottom: 1px solid var(--line);
 }
+.flechas { display: flex; }
+.tab-fecha { display: flex; flex-direction: column; line-height: 1.25; margin-left: 0.25rem; min-width: 0; }
+.tab-fecha h2 { font-size: var(--t-lg); font-weight: 700; }
+.tab-fecha h2::first-letter { text-transform: uppercase; }
+.tab-fecha span { font-size: var(--t-micro); color: var(--ink-soft); }
+.tab-der { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; flex-wrap: wrap; }
+.actualizado { font-size: var(--t-micro); color: var(--ink-soft); margin-right: 0.2rem; }
+.ic-btn {
+  display: inline-grid; place-items: center; width: 34px; height: 34px; flex: none;
+  border-radius: var(--r-sm); color: var(--ink-soft); font-size: 1.25rem; line-height: 1;
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+}
+.ic-btn:hover { background: var(--accent-hover); color: var(--ink); }
+.ic-btn.girando svg { animation: girar 0.9s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+
+.aviso { margin: 0.6rem 1rem 0; font-size: var(--t-sm); background: var(--warn-tint); color: var(--warn-ink); border-radius: var(--r-sm); padding: 0.45rem 0.7rem; }
+.aviso.error { background: var(--danger-tint); color: var(--danger); }
+.aviso.suave { background: var(--bg); color: var(--ink-soft); }
+.enlace { color: var(--accent-strong); font-weight: 600; }
+.enlace:hover { text-decoration: underline; }
+
+.scroller { flex: 1; min-height: 0; overflow: auto; margin-top: 0.6rem; border-top: 1px solid var(--line); transition: opacity 0.18s ease-out; }
+.pagina { flex: 1; min-height: 0; overflow: auto; padding: 0.9rem 1rem 1.4rem; transition: opacity 0.18s ease-out; }
+.atenuado { opacity: 0.55; }
+.vacio-grilla { padding: 2rem; text-align: center; color: var(--ink-soft); }
+
+.esqueleto { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 0.6rem; background: var(--line); border-top: 1px solid var(--line); }
+.esq-col { position: relative; background: var(--surface); }
+.esq-cab { position: absolute; top: 14px; left: 14px; width: 55%; height: 14px; border-radius: 4px; background: var(--bg); }
+.esq-b { position: absolute; left: 8px; right: 8px; height: 64px; border-radius: var(--r-sm); background: var(--bg); }
+
+/* ── Burbujas ── */
+.bq, .hueco { display: flex; flex-direction: column; gap: 0.45rem; padding-right: 1.4rem; }
+.bq-cuando { font-size: var(--t-micro); color: var(--ink-soft); }
+.bq-cuando::first-letter { text-transform: uppercase; }
+.bq-motivo { font-size: var(--t-lg); }
+.bq-meta { font-size: var(--t-sm); color: var(--ink-soft); }
+.bq-acciones { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.2rem; }
+.bq-pregunta { font-size: var(--t-sm); font-weight: 600; width: 100%; }
+.hueco { padding-right: 1.4rem; }
+.hueco-cuando { font-size: var(--t-sm); }
+.hueco-cuando strong { font-size: var(--t-lg); font-variant-numeric: tabular-nums; }
+.hueco-nota { font-size: var(--t-micro); color: var(--warn-ink); background: var(--warn-tint); border-radius: var(--r-sm); padding: 0.25rem 0.5rem; }
+.hueco .btn { justify-content: flex-start; }
 
 /* ── Tarjeta compacta de cita (semana y mes) ── */
 .mini {
-  display: block; padding: 0.4rem 0.55rem; margin-bottom: 0.35rem;
-  border-radius: var(--r-sm); border-left: 3px solid var(--line-strong);
-  background: var(--bg); font-size: var(--t-micro); line-height: 1.3;
-  transition: background 0.15s, border-color 0.15s;
+  display: flex; flex-direction: column; width: 100%; text-align: left;
+  padding: 0.35rem 0.5rem; margin-bottom: 0.3rem;
+  border-radius: var(--r-sm); border: 1px solid var(--c-borde, var(--line));
+  background: var(--c-fondo, var(--bg)); color: var(--c-tinta, var(--ink));
+  font-size: var(--t-micro); line-height: 1.3;
+  transition: box-shadow 0.15s ease-out;
 }
-.mini:hover { background: var(--accent-hover); }
-.mini.Agendada { border-left-color: var(--warn-ink); }
-.mini.Confirmada { border-left-color: var(--brand); }
-.mini.Completada { border-left-color: var(--ok); }
-.mini.Cancelada { border-left-color: var(--danger); opacity: 0.5; }
-.mini.Cancelada .mini-nombre { text-decoration: line-through; }
-.mini-hora { font-weight: 700; color: var(--brand-ink); margin-right: 0.3rem; }
-.mini-nombre { font-weight: 600; }
-.mini-detalle {
-  display: block; color: var(--ink-soft); font-size: var(--t-micro);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.mini:hover { box-shadow: 0 3px 10px rgba(16, 26, 61, 0.14); }
+.mini.apagada { background: var(--surface); border-style: dashed; border-color: var(--line-strong); color: var(--ink-soft); }
+.mini.apagada .mini-nombre { text-decoration: line-through; }
+.mini-l1 { display: flex; align-items: center; gap: 0.3rem; }
+.mini-l1 svg { margin-left: auto; flex: none; }
+.mini-hora { font-variant-numeric: tabular-nums; margin-right: 0.15rem; }
+.mini-nombre { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-detalle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.9; }
+.chip-bloqueo {
+  display: block; width: 100%; text-align: left; margin-bottom: 0.3rem; padding: 0.3rem 0.5rem;
+  font-size: var(--t-micro); color: var(--ink-soft); border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  background: repeating-linear-gradient(135deg, var(--bg) 0 6px, color-mix(in oklab, var(--ink) 9%, var(--surface)) 6px 8px);
 }
+.chip-bloqueo span { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); margin-right: 0.25rem; }
 
 /* ── Semana ── */
-.semana-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.6rem; }
-.col-dia { padding: 0.6rem; min-height: 160px; }
-.col-dia.hoy { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
-.col-head {
-  display: flex; align-items: center; gap: 0.35rem;
-  padding-bottom: 0.5rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--line);
-}
-.col-fecha {
-  display: flex; align-items: baseline; gap: 0.35rem; flex: 1; min-width: 0;
-  padding: 0.1rem 0.25rem; border-radius: var(--r-sm);
-}
+.semana-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.55rem; }
+.col-dia { padding: 0.55rem; min-height: 160px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.col-dia.hoy { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.col-head { display: flex; align-items: center; gap: 0.35rem; padding-bottom: 0.45rem; margin-bottom: 0.45rem; border-bottom: 1px solid var(--line); }
+.col-fecha { display: flex; align-items: baseline; gap: 0.35rem; flex: 1; min-width: 0; padding: 0.1rem 0.25rem; border-radius: var(--r-sm); }
 .col-fecha:hover { background: var(--accent-hover); }
-.col-dow { font-size: var(--t-micro); font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; }
+.col-dow { font-size: var(--t-micro); font-weight: 600; color: var(--ink-soft); }
 .col-num { font-size: var(--t-lg); font-weight: 700; }
-.col-dia.hoy .col-num { color: var(--accent-strong); }
-.col-conteo {
-  font-size: var(--t-micro); font-weight: 700; color: var(--ink-soft);
-  background: var(--bg); border-radius: var(--r-full); padding: 0.1em 0.5em;
-}
-.col-mas {
-  font-size: 1rem; font-weight: 700; line-height: 1; color: var(--ink-soft);
-  width: 22px; height: 22px; border-radius: 50%; flex: none;
-  opacity: 0; transition: opacity 0.15s, background 0.15s;
-}
-.col-dia:hover .col-mas, .col-mas:focus-visible { opacity: 1; }
+.col-dia.hoy .col-num { color: var(--brand-ink); }
+.col-conteo { font-size: var(--t-micro); font-weight: 700; color: var(--ink-soft); background: var(--bg); border-radius: var(--r-full); padding: 0.1em 0.5em; }
+.col-mas { font-size: 1rem; font-weight: 700; line-height: 1; color: var(--ink-soft); width: 24px; height: 24px; border-radius: 50%; flex: none; }
 .col-mas:hover { background: var(--accent-tint); color: var(--accent-strong); }
 .col-vacio { color: var(--line-strong); text-align: center; padding: 0.8rem 0; }
-.proxima-nota { margin-top: 0.6rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: center; }
 
 /* ── Mes ── */
-.mes-dows {
-  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.5rem;
-  margin-bottom: 0.4rem; padding: 0 0.2rem;
-}
-.mes-dows span {
-  font-size: var(--t-micro); font-weight: 600; color: var(--ink-soft);
-  text-transform: uppercase; letter-spacing: 0.04em;
-}
-.mes-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.5rem; }
-.celda {
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
-  padding: 0.45rem; min-height: 108px;
-}
+.mes-dows { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.45rem; margin-bottom: 0.35rem; padding: 0 0.2rem; }
+.mes-dows span { font-size: var(--t-micro); font-weight: 600; color: var(--ink-soft); }
+.mes-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.45rem; }
+.celda { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 0.4rem; min-height: 108px; }
 .celda.fuera { background: var(--bg); }
 .celda.fuera .celda-num { color: var(--ink-soft); opacity: 0.6; }
-.celda.hoy { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
-.celda-head { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; margin-bottom: 0.35rem; }
-.celda-num {
-  font-size: var(--t-sm); font-weight: 700;
-  min-width: 24px; height: 24px; border-radius: 50%;
-  transition: background 0.15s, color 0.15s;
-}
-.celda-num:hover { background: var(--accent-tint); color: var(--accent-strong); }
-.celda.hoy .celda-num { background: var(--accent); color: #fff; }
+.celda.hoy { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.celda.bloqueado { background-image: repeating-linear-gradient(135deg, transparent 0 9px, color-mix(in oklab, var(--ink) 5%, transparent) 9px 11px); }
+.celda-head { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; margin-bottom: 0.3rem; }
+.celda-num { font-size: var(--t-sm); font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; }
+.celda-num:hover { background: var(--accent-hover); }
+.celda.hoy .celda-num { background: var(--brand); color: #fff; }
 .celda-conteo { font-size: var(--t-micro); font-weight: 700; color: var(--ink-soft); }
-.celda-mas {
-  font-size: var(--t-micro); font-weight: 600; color: var(--accent-strong);
-  padding: 0.1rem 0.25rem; border-radius: var(--r-sm);
-}
+.celda-mas { font-size: var(--t-micro); font-weight: 600; color: var(--accent-strong); padding: 0.1rem 0.25rem; border-radius: var(--r-sm); }
 .celda-mas:hover { background: var(--accent-hover); }
-.mini.compacta { padding: 0.25rem 0.4rem; margin-bottom: 0.25rem; font-size: var(--t-micro); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mini.compacta .mini-hora { margin-right: 0.25rem; }
+.mini.compacta { flex-direction: row; align-items: center; padding: 0.2rem 0.4rem; margin-bottom: 0.22rem; white-space: nowrap; overflow: hidden; }
 
 @media (max-width: 1100px) {
   .semana-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .celda { min-height: 92px; }
 }
-@media (max-width: 760px) {
+/* Angosto: los filtros pasan a un panel que se abre encima, con fondo. */
+@media (max-width: 900px) {
+  .agenda, .agenda.panel-cerrado { grid-template-columns: minmax(0, 1fr); }
+  .filtros {
+    position: fixed; z-index: var(--z-modal); top: 0; bottom: 0; left: 0; width: min(300px, 88vw);
+    box-shadow: var(--shadow-lg);
+  }
+  .filtros-fondo { display: block; position: fixed; inset: 0; z-index: var(--z-modal-backdrop); background: rgba(16, 26, 61, 0.45); }
+  .agenda.panel-cerrado .filtros { display: none; }
+  .actualizado { display: none; }
   .semana-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .col-dia { min-height: 0; }
-  .col-mas { opacity: 1; }
-  /* En el mes, a este ancho, las tarjetas no caben legibles: queda la rejilla
-     con el número y el conteo, que es lo que se lee de un vistazo. */
   .mini.compacta, .celda-mas { display: none; }
   .celda { min-height: 58px; padding: 0.3rem 0.15rem; }
-  /* La celda mide ~46px: número arriba y conteo debajo, no lado a lado. */
   .celda-head { flex-direction: column; align-items: center; gap: 0.05rem; margin-bottom: 0; }
-  .celda-conteo {
-    background: var(--brand-tint); color: var(--brand-ink);
-    border-radius: var(--r-full); padding: 0 0.4em; font-size: var(--t-micro);
-  }
-  .mes-grid, .mes-dows { gap: 0.3rem; }
-  .mes-dows { text-align: center; }
 }
-@media (max-width: 640px) {
+@media (max-width: 560px) {
   .semana-grid { grid-template-columns: 1fr; }
-  .agenda-item { flex-direction: column; gap: 0.7rem; }
-  .ag-actions { flex-direction: row; width: 100%; }
+  .tab-der .btn-ghost { display: none; }
 }
-
 @media (prefers-reduced-motion: reduce) {
-  .vista-wrap, .seg-btn, .mini, .col-mas, .celda-num { transition: none; }
+  .seg, .ic-btn, .scroller, .pagina, .mini { transition: none; }
+  .ic-btn.girando svg { animation: none; }
+}
+@media print {
+  .agenda { display: block; height: auto; }
+  .filtros, .filtros-fondo, .tab-der, .flechas, .tab-cab > .btn, .tab-cab > .ic-btn, .aviso { display: none; }
+  .scroller, .pagina { overflow: visible; border: none; }
 }
 </style>

@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 import { apiError } from '../api.js';
-import { CLINICA, SITIO_URL } from '../config.js';
+import { CLINICA, SITIO_URL, BASE } from '../config.js';
 import { obtenerTokenRecaptcha } from '../recaptcha.js';
 import PasswordInput from '../components/PasswordInput.vue';
 import BotonGoogle from '../components/BotonGoogle.vue';
@@ -51,11 +51,11 @@ async function crearCuenta() {
        centrada. Antes era la versión vieja del login (dos columnas al 50%),
        así que pasar de «Iniciar sesión» a «Crea una» cambiaba de diseño. -->
   <div class="login">
-    <img src="/recepcion.webp" alt="" class="login-bg" />
+    <img :src="`${BASE}recepcion.webp`" alt="" class="login-bg" />
     <div class="login-scrim"></div>
 
     <div class="login-card">
-      <img src="/logo.webp" :alt="CLINICA.nombre" class="form-logo" />
+      <img :src="`${BASE}logo.webp`" :alt="CLINICA.nombre" class="form-logo" />
       <h1 class="portal-title">Portal del cliente</h1>
 
       <form v-if="!mensaje" class="login-form" @submit.prevent="crearCuenta">

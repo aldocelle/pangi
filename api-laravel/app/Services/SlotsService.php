@@ -31,6 +31,10 @@ use Illuminate\Support\Facades\Log;
  * **Google falla ABIERTO.** Si la consulta al calendario falla, se sigue con lo
  * local. `/citas/slots` es público: un corte de Google no puede dejar la página
  * de reservas en 500 y sin horarios.
+ *
+ * **Los bloqueos de la agenda también ocupan** (`BloqueosAgenda`): los del
+ * especialista y los de toda la clínica. Fallan abierto igual que Google: una
+ * base a la que todavía no se le agregó la tabla sigue ofreciendo horas.
  */
 class SlotsService
 {
@@ -47,7 +51,10 @@ class SlotsService
     /** Estados que de verdad ocupan un horario. */
     private const ESTADOS_QUE_BLOQUEAN = ['Agendada', 'Confirmada'];
 
-    public function __construct(private GoogleCalendar $google)
+    // `new` como valor por defecto: hay pruebas que arman el servicio a mano
+    // con un GoogleCalendar doble, y los bloqueos no necesitan ninguno.
+    public function __construct(private GoogleCalendar $google,
+                                private BloqueosAgenda $bloqueos = new BloqueosAgenda())
     {
     }
 
@@ -112,7 +119,8 @@ class SlotsService
     }
 
     /**
-     * Los rangos ocupados: citas locales + Google (que falla abierto).
+     * Los rangos ocupados: citas locales + bloqueos de la agenda + Google (los
+     * dos últimos fallan abierto).
      *
      * @return array<array{0: CarbonImmutable, 1: CarbonImmutable}>
      */
@@ -142,6 +150,14 @@ class SlotsService
         foreach ($citas as $c) {
             $ini = CarbonImmutable::parse($c->fecha_hora);
             $bloques[] = [$ini, $ini->addMinutes((int) ($c->duracion_min ?: 30))];
+        }
+
+        try {
+            foreach ($this->bloqueos->entre($desde->startOfDay(), $finRango, $especialista->id) as $b) {
+                $bloques[] = [CarbonImmutable::parse($b->inicio), CarbonImmutable::parse($b->fin)];
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Bloqueos de la agenda (disponibilidad): ' . $e->getMessage());
         }
 
         // ── Google Calendar ──────────────────────────────────────────────
@@ -260,9 +276,13 @@ class SlotsService
      * Rangos (inicio, fin) válidos ese día, según los Horarios del
      * especialista. Cae al esquema legado solo si no hay Horarios definidos.
      *
+     * Sin $servicio no filtra por servicio: es lo que pinta la Agenda, que
+     * muestra cuándo trabaja cada uno, atienda lo que atienda. `fin` sigue
+     * siendo la última hora a la que se puede EMPEZAR (ver arriba).
+     *
      * @return array<array{0: string, 1: string}>
      */
-    private function ventanasDelDia(object $especialista, object $servicio, CarbonImmutable $dia): array
+    public function ventanasDelDia(object $especialista, ?object $servicio, CarbonImmutable $dia): array
     {
         // `dayOfWeek` de Carbon es 0=domingo; Python usa 0=lunes.
         $dow = (int) $dia->dayOfWeekIso - 1;
@@ -288,7 +308,7 @@ class SlotsService
                         continue;
                     }
                 }
-                if (! $h->todos_servicios) {
+                if ($servicio !== null && ! $h->todos_servicios) {
                     $permitidos = json_decode($h->servicio_ids ?: '[]', true) ?: [];
                     if (! in_array((string) $servicio->id, array_map('strval', $permitidos), true)) {
                         continue;

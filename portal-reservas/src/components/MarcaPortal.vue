@@ -1,5 +1,5 @@
 <script setup>
-import { CLINICA } from '../config.js';
+import { CLINICA, BASE } from '../config.js';
 /**
  * El logo y el nombre, en versión compacta y sobre fondo claro.
  *
@@ -15,7 +15,7 @@ import { CLINICA } from '../config.js';
 
 <template>
   <div class="marca">
-    <img src="/isotipo.webp" alt="" class="marca-logo" />
+    <img :src="`${BASE}isotipo.webp`" alt="" class="marca-logo" />
     <p class="marca-txt">
       <strong>{{ CLINICA.nombre }}</strong>
       <span>Clínica Veterinaria</span>

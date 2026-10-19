@@ -26,6 +26,12 @@ En el panel del hosting, crear los subdominios `api`, `reservas` y `panel`.
 
 Activar SSL (Let's Encrypt) en los cuatro.
 
+Si la API o reservas van en una carpeta del sitio (`{SITIO}/api`,
+`{SITIO}/reservas`), no necesitan subdominio ni certificado propio: basta con
+descomprimirlas en las carpetas `api/` y `reservas/` de la carpeta del sitio. El
+`.htaccess` de `api/` hace pasar todo por su `index.php` y no entrega ningún
+archivo de esa carpeta.
+
 ## 2. Base de datos
 
 1. Crear una base y un usuario con todos los permisos sobre ella. Conviene que

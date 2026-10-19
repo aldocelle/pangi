@@ -748,13 +748,20 @@ class CatalogoController extends Controller
             // cobro REAL y debe seguir existiendo aunque el catálogo cambie.
             // Solo se suelta la referencia.
             //
-            // Con las 47 claves foráneas puestas, olvidar cualquiera de las
+            // Con las 48 claves foráneas puestas, olvidar cualquiera de las
             // tres últimas hace fallar el borrado entero.
             foreach (['citas', 'notas_clinicas', 'ventas', 'transacciones'] as $tabla) {
                 DB::table($tabla)->where('especialista_id', $e->id)
                     ->update(['especialista_id' => null]);
             }
             DB::table('servicio_especialista')->where('especialista_id', $e->id)->delete();
+            // Sus bloqueos de agenda se van con él: sin especialista no bloquean
+            // nada, y soltarlos a NULL los volvería bloqueos de TODA la clínica.
+            // `hasTable` porque es la tabla más nueva: una base a la que todavía
+            // no se le corrió base/cambios/ igual tiene que poder borrar.
+            if (Schema::hasTable('bloqueos_agenda')) {
+                DB::table('bloqueos_agenda')->where('especialista_id', $e->id)->delete();
+            }
             $this->borrarHorarios($e->id);
             DB::table('disponibilidad_especialistas')->where('especialista_id', $e->id)->delete();
             $this->auditoria->registrar($request->attributes->get('usuario'),

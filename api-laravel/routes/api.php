@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\MisPagosController;
 use App\Http\Controllers\Api\EstadoSistemaController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\CajaController;
+use App\Http\Controllers\Api\AgendaController;
 use App\Http\Controllers\Api\CitasController;
 use App\Http\Controllers\Api\ClientesController;
 use App\Http\Controllers\Api\ContactoController;
@@ -115,6 +116,15 @@ Route::post('/citas/{id}/link-pago', [CitasController::class, 'linkPago'])
     ->middleware('auth:reservas');
 
 Route::get('/citas/agenda', [CitasController::class, 'agenda'])
+    ->middleware('auth:agenda');
+
+// Lo que la Agenda dibuja además de las citas: horario de cada especialista y
+// bloqueos (trámites, vacaciones). Un bloqueo no se borra, se anula.
+Route::get('/agenda/disponibilidad', [AgendaController::class, 'disponibilidad'])
+    ->middleware('auth:agenda');
+Route::post('/agenda/bloqueos', [AgendaController::class, 'crearBloqueo'])
+    ->middleware('auth:agenda');
+Route::delete('/agenda/bloqueos/{id}', [AgendaController::class, 'anularBloqueo'])
     ->middleware('auth:agenda');
 
 Route::get('/clientes', [ClientesController::class, 'listar'])->middleware('auth:personas');

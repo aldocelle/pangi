@@ -16,7 +16,7 @@ y correos `@correo.test` / `@pangi.demo`, que no llegan a nadie.
 | `website/` | Sitio público de la clínica | http://localhost:3100 |
 | `portal-reservas/` | Reserva de horas sin cuenta + portal del cliente (mascotas, ficha, citas, pagos) | http://localhost:3101 |
 | `portal-admin-clinica/` | Panel del equipo: agenda, fichas, clientes, caja, ventas, inventario, compras, recordatorios, estadísticas, asistencia | http://localhost:3102 |
-| `base/esquema.sql` | Estructura de la base (39 tablas), compatible con MySQL 8 y MariaDB | — |
+| `base/esquema.sql` | Estructura de la base (40 tablas), compatible con MySQL 8 y MariaDB | — |
 
 ## Arrancar en este Mac
 

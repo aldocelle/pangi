@@ -71,7 +71,7 @@ class DemoSembrar extends Command
 
     /** Se vacían. `usuarios` va aparte: se conserva el equipo activo. */
     public const DATOS = [
-        'chatbot_conversations', 'chatbot_preguntas', 'citas', 'documentos_clinicos',
+        'bloqueos_agenda', 'chatbot_conversations', 'chatbot_preguntas', 'citas', 'documentos_clinicos',
         'facturas_compra', 'lineas_factura_compra', 'fichas_clinicas', 'items_inventario',
         'logs_actividad', 'marcajes_asistencia', 'mascotas', 'mensajes_contacto',
         'movimientos_caja', 'notas_clinicas', 'protocolo_aplicaciones', 'proveedores',
@@ -252,6 +252,7 @@ class DemoSembrar extends Command
         $this->protocolos($mascotas, $hoy);
         $this->recordatorios($mascotas, $hoy);
         $this->citas($cobro, $mascotas, $servicios, $especialistas, $quienAtiende, $fichas, $hoy);
+        $this->bloqueos($especialistas, $hoy);
         $this->ventasYCaja($cobro, $mascotas, $servicios, $especialistas, $quienAtiende, $inicio, $hoy);
         $this->equipo($equipo, $hoy);
         $this->contactoYSolicitudes($clientes, $hoy);
@@ -909,6 +910,58 @@ class DemoSembrar extends Command
         }
         $venta['total_pendiente'] = $pendiente;
         return $venta;
+    }
+
+    /**
+     * Tres bloqueos de agenda, para que la vista de día muestre uno hoy: un
+     * trámite de un especialista (en un hueco sin citas suyas), unas
+     * vacaciones de otro la semana que viene y una capacitación de toda la
+     * clínica. `hasTable` porque una base anterior al 19-oct no la tiene.
+     */
+    private function bloqueos($especialistas, CarbonImmutable $hoy): void
+    {
+        if (! Schema::hasTable('bloqueos_agenda')) {
+            return;
+        }
+        $lista = $especialistas->values();
+        $creado = $this->utc($this->ahora->subDays(3));
+        $filas = [];
+
+        // El trámite de hoy cae en el primer hueco libre del segundo especialista.
+        $esp = $lista[min(1, $lista->count() - 1)];
+        $citas = DB::table('citas')->where('especialista_id', $esp->id)
+            ->whereIn('estado', ['Agendada', 'Confirmada'])
+            ->where('fecha_hora', '>=', $hoy->format('Y-m-d H:i:s'))
+            ->where('fecha_hora', '<', $hoy->addDay()->format('Y-m-d H:i:s'))
+            ->get(['fecha_hora', 'duracion_min']);
+        foreach ([[12, 0, 150], [13, 0, 90], [15, 30, 90], [17, 30, 60]] as [$h, $m, $min]) {
+            $ini = $hoy->setTime($h, $m);
+            $fin = $ini->addMinutes($min);
+            $choca = $citas->contains(function ($c) use ($ini, $fin) {
+                $cIni = CarbonImmutable::parse($c->fecha_hora);
+                return $cIni < $fin && $cIni->addMinutes((int) ($c->duracion_min ?: 30)) > $ini;
+            });
+            if (! $choca) {
+                $filas[] = [$esp->id, $ini, $fin, 'Salida por trámites'];
+                break;
+            }
+        }
+
+        if ($lista->count() > 2) {
+            $lunes = $hoy->next(CarbonImmutable::MONDAY);
+            $filas[] = [$lista[2]->id, $lunes->addDays(2), $lunes->addDays(4), 'Vacaciones'];
+        }
+        $viernes = $hoy->next(CarbonImmutable::FRIDAY);
+        $filas[] = [null, $viernes->setTime(17, 0), $viernes->setTime(19, 0), 'Capacitación del equipo'];
+
+        foreach ($filas as [$espId, $ini, $fin, $motivo]) {
+            DB::table('bloqueos_agenda')->insert([
+                'id' => $this->uuid(), 'especialista_id' => $espId,
+                'inicio' => $ini->format('Y-m-d H:i:s'), 'fin' => $fin->format('Y-m-d H:i:s'),
+                'motivo' => $motivo, 'creado_por_id' => $this->firma->id, 'created_at' => $creado,
+            ]);
+        }
+        $this->resumen['Bloqueos de agenda'] = (string) count($filas);
     }
 
     private function equipo($equipo, CarbonImmutable $hoy): void

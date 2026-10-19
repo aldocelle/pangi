@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from './stores/auth.js';
-import { SITIO_URL, CLINICA } from './config.js';
+import { SITIO_URL, CLINICA, BASE } from './config.js';
 import { urlFoto } from './api.js';
 import AppShell from './components/AppShell.vue';
 import BaseIcon from './components/BaseIcon.vue';
@@ -68,7 +68,7 @@ function salir() {
            y perdía lo que llevaba escrito. Para ir al sitio está el enlace de
            al lado, que lo dice con todas las letras. -->
       <RouterLink to="/" class="logo">
-        <img src="/isotipo.webp" alt="" class="logo-img" />
+        <img :src="`${BASE}isotipo.webp`" alt="" class="logo-img" />
         <span class="logo-text">Clínica Veterinaria <strong>{{ CLINICA.nombre }}</strong></span>
       </RouterLink>
       <!-- «Volver al sitio web» va DENTRO del mismo carril que los enlaces

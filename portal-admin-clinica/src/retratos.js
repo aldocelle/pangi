@@ -28,5 +28,5 @@ function clave(nombre) {
 /** Ruta del retrato de un especialista, o null si no tenemos foto suya. */
 export function retratoDe(especialista) {
   const archivo = RETRATOS[clave(especialista?.nombre)];
-  return archivo ? `/equipo/${archivo}` : null;
+  return archivo ? `${import.meta.env.BASE_URL}equipo/${archivo}` : null;
 }

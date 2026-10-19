@@ -10,7 +10,7 @@ import BotonGoogle from '../components/BotonGoogle.vue';
 import SubirOrdenExamen from '../components/SubirOrdenExamen.vue';
 import PoliticaDevolucion from '../components/PoliticaDevolucion.vue';
 import BaseIcon from '../components/BaseIcon.vue';
-import { CLINICA, MIN_VENTANA_PAGO, WHATSAPP_RESERVAS, WHATSAPP_RESERVAS_ES_BOT } from '../config.js';
+import { CLINICA, MIN_VENTANA_PAGO, WHATSAPP_RESERVAS, WHATSAPP_RESERVAS_ES_BOT, BASE } from '../config.js';
 
 const props = defineProps({
   slug: { type: String, default: null }, // enlace permanente /b/{slug}
@@ -47,7 +47,7 @@ function claveNombre(nombre) {
 }
 function urlFotoEsp(e) {
   const local = RETRATOS[claveNombre(e?.nombre)];
-  if (local) return `/equipo/${local}`;
+  if (local) return `${BASE}equipo/${local}`;
   return e?.foto ? `${API_URL}${e.foto}` : null;
 }
 
@@ -1403,7 +1403,7 @@ onMounted(async () => {
 <template>
   <div class="rsv-page">
     <header class="rsv-hero">
-      <img src="/portada-inicio.webp" alt="" aria-hidden="true" class="rsv-hero-fondo" />
+      <img :src="`${BASE}portada-inicio.webp`" alt="" aria-hidden="true" class="rsv-hero-fondo" />
       <div class="rsv-hero-velo" aria-hidden="true"></div>
       <div class="rsv-hero-blob" aria-hidden="true"></div>
       <!-- La salida al sitio vive acá, arriba a la izquierda del hero azul, y
@@ -1414,7 +1414,7 @@ onMounted(async () => {
         <span>Volver al sitio web</span>
       </a>
       <div class="rsv-hero-in">
-        <img src="/isotipo.webp" alt="" class="rsv-logo" />
+        <img :src="`${BASE}isotipo.webp`" alt="" class="rsv-logo" />
         <h1>{{ ajustes?.nombre || CLINICA.nombre }}</h1>
         <p class="rsv-global">{{ w.global || 'Reserva tu hora en unos minutos, sin llamar y sin esperar.' }}</p>
         <p v-if="espFijo" class="esp-fijo">

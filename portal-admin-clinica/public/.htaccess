@@ -6,15 +6,26 @@
 # Solo funcionaba la raíz.
 #
 # Vive en `public/` para que Vite lo copie a `dist/` en cada build y viaje con
-# el despliegue. Contenido idéntico al que estaba en producción.
+# el despliegue.
+#
+# Las reglas son relativas (sin `RewriteBase /` ni `/index.html`) para que
+# sirvan igual en la raíz de un subdominio que en una carpeta del sitio
+# (`/panel/`). Sin `!-d`: una carpeta de imágenes como `equipo/` o `mascotas/`
+# cae en el SPA (tras la barra que agrega DirectorySlash) y no en un 403;
+# `/mascotas` es también una ruta del panel.
+#
+# Dentro del sitio rige su `DirectorySlash Off`. Acá se vuelve a encender para
+# que `/panel` sin barra redirija a `/panel/` en vez de dar 403: es la carpeta
+# misma y las reglas de abajo no la alcanzan (igual que en portal-reservas).
+<IfModule mod_dir.c>
+  DirectorySlash On
+</IfModule>
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /
   RewriteRule ^index\.html$ - [L]
   RewriteCond %{REQUEST_FILENAME} !-f
-  RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule . /index.html [L]
+  RewriteRule ^ index.html [L]
 </IfModule>
 <IfModule mod_headers.c>
   <FilesMatch "\.(js|css|woff2?|png|jpe?g|svg|webp)$">

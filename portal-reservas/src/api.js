@@ -22,7 +22,8 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('access_token');
-      if (!location.pathname.startsWith('/login')) location.href = '/login';
+      const login = `${import.meta.env.BASE_URL}login`;
+      if (!location.pathname.startsWith(login)) location.href = login;
     }
     return Promise.reject(err);
   }
@@ -96,9 +97,9 @@ export function edadDesde(iso) {
    /mascotas/ y respondía 403 a quien recargaba Mis Mascotas. */
 export function fotoEspecie(especie) {
   const e = (especie || '').toLowerCase();
-  if (e.includes('gat')) return '/especies/gato.jpg';
-  if (e.includes('perr')) return '/especies/perro.jpg';
-  return '/especies/otro.jpg';
+  if (e.includes('gat')) return `${import.meta.env.BASE_URL}especies/gato.jpg`;
+  if (e.includes('perr')) return `${import.meta.env.BASE_URL}especies/perro.jpg`;
+  return `${import.meta.env.BASE_URL}especies/otro.jpg`;
 }
 
 /* Las fotos subidas desde el portal vuelven como ruta relativa

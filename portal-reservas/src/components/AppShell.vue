@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute, RouterLink } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 import { useDatosStore } from '../stores/datos.js';
-import { NAV, CLINICA } from '../config.js';
+import { NAV, CLINICA, BASE } from '../config.js';
 import BaseIcon from './BaseIcon.vue';
 import { urlFoto } from '../api.js';
 
@@ -61,7 +61,7 @@ function esActivo(item) {
     <!-- Sidebar -->
     <aside class="sidebar" :class="{ open: menuAbierto }">
       <div class="side-brand">
-        <img src="/isotipo.webp" alt="" class="side-logo" />
+        <img :src="`${BASE}isotipo.webp`" alt="" class="side-logo" />
         <div class="side-brand-text">
           <strong>Portal del cliente</strong>
           <span>{{ CLINICA.nombre }}</span>

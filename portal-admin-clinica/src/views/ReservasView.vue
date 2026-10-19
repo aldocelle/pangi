@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/auth.js';
 import BuscadorAvanzado from '../components/BuscadorAvanzado.vue';
 import Paginador from '../components/Paginador.vue';
 import ReagendarCitaModal from '../components/ReagendarCitaModal.vue';
+import { MODOS_COLOR, modoColor, colorearCitas, fijarCatalogoColores } from '../colores-agenda.js';
 
 function iso(d) {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -22,6 +23,11 @@ const hasta = ref(iso(new Date(hoy.getFullYear(), hoy.getMonth() + 1, hoy.getDat
 const filtros = ref({ q: '', servicio_id: '', especialista_id: '', estado: '' });
 
 const reservas = ref([]);
+/* Las citas de los días del rango SIN filtros, solo para calcular colores en el
+   modo «uno por cita»: ese color depende de las vecinas del día, y con los
+   filtros de esta pantalla puestos no se verían todas. Así cada reserva sale
+   del mismo color que en la Agenda (ver colores-agenda.js). */
+const citasDelRango = ref([]);
 const servicios = ref([]);
 const especialistas = ref([]);
 const loading = ref(true);
@@ -418,12 +424,50 @@ function buscar() {
 }
 watch([desde, hasta], cargar);
 
+// /citas/agenda acepta hasta 62 días por pedido: un rango más largo va en tramos.
+const TRAMO_DIAS = 62;
+let ultimoColor = 0;
+async function cargarColores() {
+  if (modoColor.value !== 'cita' || !desde.value || !hasta.value || hasta.value < desde.value) return;
+  const token = ++ultimoColor;
+  const juntas = [];
+  try {
+    for (let d = desde.value; d <= hasta.value;) {
+      const [y, m, dd] = d.split('-').map(Number);
+      const fin = iso(new Date(y, m - 1, dd + TRAMO_DIAS - 1));
+      const h = fin < hasta.value ? fin : hasta.value;
+      const { data } = await api.get('/citas/agenda', { params: { fecha: d, hasta: h } });
+      juntas.push(...data);
+      d = iso(new Date(y, m - 1, dd + TRAMO_DIAS));
+    }
+    if (token === ultimoColor) citasDelRango.value = juntas;
+  } catch {
+    // Sin las del día completo, cada reserva cae a su color de respaldo.
+  }
+}
+watch([desde, hasta, modoColor], cargarColores);
+const colores = computed(() =>
+  colorearCitas(modoColor.value === 'cita' ? citasDelRango.value : reservas.value, modoColor.value));
+/* El color de una reserva, el mismo de la Agenda. Devoluciones y abonos
+   pendientes pueden ser de cualquier fecha: en los modos fijos el color no
+   depende del día y se calcula igual; en «uno por cita» solo se conoce si el
+   día está en el rango cargado, y si no, mejor sin color que con uno que no
+   coincida. */
+function estiloColor(r) {
+  let c = colores.value.get(r.id);
+  if (!c && modoColor.value !== 'cita') c = colorearCitas([r], modoColor.value).get(r.id);
+  return c ? { background: c.fondo, borderColor: c.borde, color: c.tinta } : null;
+}
+
 onMounted(async () => {
   const [s, e] = await Promise.all([
     api.get('/catalogo/servicios/todos'),
     api.get('/catalogo/especialistas/todos'),
   ]);
   servicios.value = s.data;
+  // El catálogo COMPLETO, antes de filtrar: los colores fijos dependen de su orden.
+  fijarCatalogoColores({ servicios: s.data, especialistas: e.data });
+  cargarColores();
   // Solo activos: los 54 especialistas del legado ("Médico #6362 (ACVet)") no
   // son personal real y llenarían el desplegable. Mismo criterio que Agenda y
   // EspecialistasView; no se pueden borrar porque cuelgan del histórico.
@@ -442,6 +486,13 @@ onMounted(async () => {
         <p class="page-sub">Las horas agendadas por los clientes, por rango de fechas.</p>
       </div>
       <div class="rango">
+        <!-- El mismo ajuste que en la Agenda: cambiarlo acá lo cambia allá. -->
+        <label class="color-modo">
+          <span>Color</span>
+          <select v-model="modoColor" class="select" aria-label="Color de las citas, igual que en la Agenda">
+            <option v-for="m in MODOS_COLOR" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+        </label>
         <input type="date" class="input" v-model="desde" aria-label="Desde" />
         <span>—</span>
         <input type="date" class="input" v-model="hasta" aria-label="Hasta" />
@@ -471,7 +522,7 @@ onMounted(async () => {
             <small>{{ r.dueno.nombre }} · {{ r.dueno.telefono || r.dueno.email }}</small>
           </div>
           <div class="ab-celda">
-            <span>{{ fechaCorta(r.fecha_hora) }} · {{ horas(r) }}</span>
+            <span>{{ fechaCorta(r.fecha_hora) }} · <span class="rsv-hora" :style="estiloColor(r)">{{ horas(r) }}</span></span>
             <small>{{ r.servicio }} · {{ avisoLabel(r.devolucion) }}</small>
           </div>
           <div class="ab-celda ab-monto">
@@ -528,7 +579,7 @@ onMounted(async () => {
             <small>{{ r.dueno.nombre }} · {{ r.dueno.telefono || r.dueno.email }}</small>
           </div>
           <div class="ab-celda">
-            <span>{{ fechaCorta(r.fecha_hora) }} · {{ horas(r) }}</span>
+            <span>{{ fechaCorta(r.fecha_hora) }} · <span class="rsv-hora" :style="estiloColor(r)">{{ horas(r) }}</span></span>
             <small>{{ r.servicio }}</small>
           </div>
           <div class="ab-celda ab-monto">
@@ -647,7 +698,7 @@ onMounted(async () => {
           <img class="rsv-ic" :src="urlFoto(r.mascota.foto_url) || fotoEspecie(r.mascota.especie)" :alt="r.mascota.especie" />
           <div class="rsv-cols">
             <div class="rsv-col">
-              <span class="rsv-line">🕐 {{ horas(r) }}</span>
+              <span class="rsv-line"><span class="rsv-hora" :class="{ apagada: r.estado === 'Cancelada' || r.estado === 'Expirada' }" :style="r.estado === 'Cancelada' || r.estado === 'Expirada' ? null : estiloColor(r)">{{ horas(r) }}</span></span>
               <span class="rsv-line email">✉ {{ r.dueno.email }}</span>
             </div>
             <div class="rsv-col">
@@ -752,7 +803,17 @@ onMounted(async () => {
 
 <style scoped>
 .head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
-.rango { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-soft); }
+.rango { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-soft); flex-wrap: wrap; }
+.color-modo { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--t-sm); margin-right: 0.4rem; }
+.color-modo .select { width: auto; padding: 0.45em 0.7em; font-size: var(--t-sm); }
+/* La hora con el color de la cita, el mismo de la Agenda: es lo que une las dos
+   pantallas a simple vista. Cancelada o expirada: sin color, como allá. */
+.rsv-hora {
+  display: inline-block; padding: 0.1em 0.55em; border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong); background: var(--bg);
+  font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.rsv-hora.apagada { border-style: dashed; color: var(--ink-soft); background: var(--surface); }
 .rango .input { width: auto; padding: 0.45em 0.7em; }
 
 /* Abonos pendientes */

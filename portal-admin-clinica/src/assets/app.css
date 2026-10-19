@@ -140,7 +140,11 @@
      emojis salen en una tinta, como el resto de los iconos del panel. Letras y
      dígitos se quedan con Poppins. */
   --font: 'Emoji Mono', 'Poppins', 'Inter', system-ui, sans-serif;
+  /* Capas, de abajo hacia arriba: barra superior fija, sus desplegables y las
+     burbujas de la Agenda, y por encima los modales. */
+  --z-barra: 100; --z-desplegable: 200;
   --z-modal-backdrop: 300; --z-modal: 310;
+  --alto-barra: 52px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

@@ -45,9 +45,9 @@ Options -Indexes
   RewriteEngine On
   RewriteBase /
 
-  # `reservas/` y `panel/` traen su propio .htaccess con su propio fallback.
-  # Se los deja pasar sin tocar para no competir con esas reglas.
-  RewriteRule ^(reservas|panel)(/|$) - [L]
+  # `reservas/`, `panel/` y `api/` traen su propio .htaccess con su propio
+  # fallback. Se los deja pasar sin tocar para no competir con esas reglas.
+  RewriteRule ^(reservas|panel|api)(/|$) - [L]
 
   # Un archivo que existe de verdad se sirve tal cual: imágenes, css, js.
   RewriteCond %{REQUEST_FILENAME} -f

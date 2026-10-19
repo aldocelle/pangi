@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
 import { apiError } from '../api.js';
-import { CLINICA } from '../config.js';
+import { CLINICA, BASE } from '../config.js';
 import PasswordInput from '../components/PasswordInput.vue';
 import BotonGoogle from '../components/BotonGoogle.vue';
 import BaseIcon from '../components/BaseIcon.vue';
@@ -61,7 +61,7 @@ async function solicitarReset() {
        vive en una tarjeta centrada: una sola composición, un solo peso
        visual, en vez de dos columnas compitiendo por la atención. -->
   <div class="login">
-    <img src="/recepcion.webp" alt="" class="login-bg" />
+    <img :src="`${BASE}recepcion.webp`" alt="" class="login-bg" />
     <div class="login-scrim"></div>
 
     <div class="login-card">
@@ -70,7 +70,7 @@ async function solicitarReset() {
            debajo de eso. El logo va al mismo tamaño que en el login del
            panel de staff (190px) -- los dos logins comparten esa medida
            a propósito. -->
-      <img src="/logo.webp" :alt="CLINICA.nombre" class="form-logo" />
+      <img :src="`${BASE}logo.webp`" :alt="CLINICA.nombre" class="form-logo" />
       <h1 class="portal-title">Portal del cliente</h1>
 
       <!-- Login -->

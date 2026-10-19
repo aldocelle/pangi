@@ -4,6 +4,12 @@
 // URL del sitio público (topbar y enlaces a Términos/Privacidad).
 export const SITIO_URL = import.meta.env.VITE_SITIO_URL || 'http://localhost:3100';
 
+// Carpeta desde la que se sirve el portal: '/' en su propio dominio o, por
+// ejemplo, '/reservas/' dentro del sitio. Sale del `--base` de Vite al
+// compilar. Las imágenes de public/ se piden con ella delante: una ruta
+// absoluta como '/logo.webp' iría a buscar el archivo a la raíz del sitio.
+export const BASE = import.meta.env.BASE_URL;
+
 /* Datos de contacto de la clínica: los usa el portal entero (sidebar, Inicio,
    pie, ayuda). El nombre se fija al compilar (VITE_CLINICA_NOMBRE, ver .env).
    Dirección y horario van partidos en líneas y no en una sola cadena: en la

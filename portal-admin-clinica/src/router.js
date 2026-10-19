@@ -15,7 +15,9 @@ const routes = [
      duplicar build, deploy ni dominio. */
   { path: '/fichaje', name: 'fichaje', component: () => import('./views/FichajeView.vue'), meta: { public: true, kiosco: true } },
   { path: '/', name: 'reservas', component: () => import('./views/ReservasView.vue'), meta: { area: 'reservas' } },
-  { path: '/agenda', name: 'agenda', component: () => import('./views/AgendaView.vue'), meta: { area: 'agenda' } },
+  // `pantallaCompleta`: App.vue le quita el margen; la Agenda maneja su propio
+  // alto y scroll (columnas por profesional con la hora fija a la izquierda).
+  { path: '/agenda', name: 'agenda', component: () => import('./views/AgendaView.vue'), meta: { area: 'agenda', pantallaCompleta: true } },
   { path: '/tareas', name: 'tareas', component: () => import('./views/TareasView.vue'), meta: { area: 'tareas' } },
   // SIN `meta.area`: fichar lo propio no exige permiso, y ponerlo acá dejaría
   // fuera de la pantalla a quien no tenga el área — o sea justo sin poder
@@ -67,7 +69,7 @@ const routes = [
 ];
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes,
   scrollBehavior: () => ({ top: 0 }),
 });

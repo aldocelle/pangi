@@ -70,7 +70,7 @@
  */
 import { ref, nextTick, computed } from 'vue';
 import { api } from '../api.js';
-import { CLINICA } from '../config.js';
+import { CLINICA, BASE } from '../config.js';
 import { bloques, conMontos, gruposDeAcciones } from './chatFormato.js';
 
 /* `texto` es lo que se ve en el botón y en la burbuja; `mensaje`, lo que viaja
@@ -156,7 +156,7 @@ const waUrl = computed(() => {
 function irA(ruta) {
   // Solo rutas del propio portal: una acción no puede sacar a nadie del sitio.
   if (typeof ruta === 'string' && ruta.startsWith('/') && !ruta.startsWith('//')) {
-    window.location.assign(ruta);
+    window.location.assign(BASE + ruta.slice(1));
   }
 }
 
@@ -268,7 +268,7 @@ function elegir(op) {
   <Transition name="chat" appear>
     <section v-if="abierto" class="chat-panel" role="dialog" :aria-label="`Asistente de ${CLINICA.nombre}`">
       <header class="chat-head">
-        <img class="chat-avatar" src="/isotipo.webp" alt="" width="40" height="40" />
+        <img class="chat-avatar" :src="`${BASE}isotipo.webp`" alt="" width="40" height="40" />
         <div class="chat-head-txt">
           <strong>Asistente {{ CLINICA.nombre }}</strong>
           <span><i class="chat-punto" aria-hidden="true"></i>Responde al instante</span>

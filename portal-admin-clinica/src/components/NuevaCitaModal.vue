@@ -4,6 +4,11 @@ import { api, apiError, formatCLP } from '../api.js';
 
 const props = defineProps({
   fechaInicial: { type: String, default: '' }, // YYYY-MM-DD, precarga la fecha de la Agenda
+  /* Desde un hueco de la Agenda: quién y a qué hora. Se usan una sola vez, para
+     saltar los pasos que ya se respondieron al tocar la grilla; si esa hora no
+     está libre para la consulta elegida, se queda en el paso de horario. */
+  especialistaInicial: { type: String, default: '' },
+  horaInicial: { type: String, default: '' }, // HH:MM
 });
 const emit = defineEmits(['close', 'creada']);
 
@@ -30,6 +35,8 @@ const loadingPaso = ref(false);
 const error = ref('');
 const busy = ref(false);
 const forzar = ref(false);
+const preferenciaPendiente = ref(!!(props.especialistaInicial || props.horaInicial));
+const horaNoLibre = ref(false);
 
 const mascotasFiltradas = computed(() => {
   const t = qMascota.value.trim().toLowerCase();
@@ -90,6 +97,12 @@ async function elegirServicio(s) {
   try {
     const { data } = await api.get('/catalogo/especialistas', { params: { servicio_id: s.id } });
     especialistas.value = data;
+    const preferido = preferenciaPendiente.value && data.find((e) => e.id === props.especialistaInicial);
+    if (preferido) {
+      loadingPaso.value = false;
+      await elegirEspecialista(preferido);
+      return;
+    }
   } catch (e) {
     error.value = apiError(e, 'No se pudieron cargar los especialistas.');
   } finally {
@@ -119,6 +132,14 @@ async function cargarSemana() {
       },
     });
     slots.value = data;
+    if (preferenciaPendiente.value && props.horaInicial && props.fechaInicial && semana.value === 0) {
+      preferenciaPendiente.value = false;
+      if ((data[props.fechaInicial] || []).includes(props.horaInicial)) {
+        elegirHora(props.fechaInicial, props.horaInicial);
+      } else {
+        horaNoLibre.value = true;
+      }
+    }
   } catch (e) {
     error.value = apiError(e, 'No se pudieron cargar los horarios.');
   } finally {
@@ -145,7 +166,7 @@ function abrirForzado() {
   // horario como disponible (ej. el veterinario confirmó verbalmente).
   const hoyISO = new Date().toISOString().slice(0, 10);
   fecha.value = props.fechaInicial || hoyISO;
-  hora.value = '09:00';
+  hora.value = props.horaInicial || '09:00';
   forzar.value = true;
   paso.value = 5;
 }
@@ -268,6 +289,9 @@ onMounted(async () => {
 
           <p v-if="loadingPaso" class="empty">Buscando horarios…</p>
           <template v-else>
+            <p v-if="horaNoLibre" class="aviso-forzado">
+              No hay hora libre a las {{ horaInicial }} para esta consulta. Elige otra o agéndala fuera de disponibilidad.
+            </p>
             <div class="dias-scroll">
               <div v-for="d in semanaCompleta" :key="d.iso" class="dia-col" :class="{ hoy: d.esHoy }">
                 <div class="dia-cab">

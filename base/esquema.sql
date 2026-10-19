@@ -1,4 +1,4 @@
--- Esquema completo de la base (39 tablas). Compatible con MariaDB 10.6+ y
+-- Esquema completo de la base (40 tablas). Compatible con MariaDB 10.6+ y
 -- MySQL 8.0+: collation utf8mb4_unicode_ci, sin sintaxis propia de MariaDB.
 --
 -- Se carga sobre una base VACÍA. Con datos, mejor cargar el respaldo de la
@@ -25,6 +25,25 @@ CREATE TABLE `ajustes` (
   PRIMARY KEY (`id`),
   KEY `ajustes_google_account_id_fkey` (`google_account_id`),
   CONSTRAINT `ajustes_google_account_id_fkey` FOREIGN KEY (`google_account_id`) REFERENCES `google_accounts` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `bloqueos_agenda`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `bloqueos_agenda` (
+  `id` char(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  `especialista_id` char(36) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL,
+  `inicio` datetime NOT NULL,
+  `fin` datetime NOT NULL,
+  `motivo` varchar(150) NOT NULL,
+  `creado_por_id` char(36) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL,
+  `created_at` datetime(6) DEFAULT NULL,
+  `anulado_at` datetime(6) DEFAULT NULL,
+  `anulado_por_id` char(36) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `ix_bloqueos_agenda_rango` (`inicio`,`fin`),
+  KEY `ix_bloqueos_agenda_especialista_id` (`especialista_id`),
+  CONSTRAINT `bloqueos_agenda_especialista_id_fkey` FOREIGN KEY (`especialista_id`) REFERENCES `especialistas` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `chatbot_conversations`;
