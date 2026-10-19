@@ -1,0 +1,4 @@
+# Sitio de demostración: no se indexa. El día que el sitio sea el de una
+# clínica real, se cambia acá (Allow: /) y se agrega el sitemap.
+User-agent: *
+Disallow: /

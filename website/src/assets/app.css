@@ -1,0 +1,312 @@
+/* ── Paleta ──
+   Azul profundo de marca + turquesa de acento. Reemplaza al naranja #ff6900
+   del sitio original.
+
+   El turquesa tiene tres escalones y cada uno tiene un trabajo. Importa
+   respetarlos: #0AA7B8 mide 2.90:1 contra blanco, o sea no alcanza el 4.5:1
+   que pide WCAG AA ni como texto ni como fondo de un botón con letra blanca.
+   Es color de relleno decorativo, no de texto. (El naranja que había tenía
+   exactamente el mismo problema, con 2.89:1.) */
+:root {
+  /* Base */
+  --color-primary-dark: #26326E;   /* Azul profundo (encabezados, títulos) */
+  --color-primary: #0AA7B8;        /* Turquesa vivo. Solo relleno y luz: no lleva texto encima */
+  --color-primary-hover: #087C8A;  /* Turquesa medio. 4.93:1 sobre blanco: éste sí es el de texto y botones */
+  --color-primary-deep: #056773;   /* Turquesa profundo. Hover de superficies sólidas y texto sobre fondo tintado */
+
+  /* Fondos */
+  --color-bg-light: #E6F7F9;       /* Fondo suave */
+  --color-white: #FFFFFF;
+
+  /* Texto */
+  --color-text-main: #26326E;
+  --color-text-secondary: #4A4A4A;
+
+  /* UI */
+  --color-border: #DDE5ED;
+  --color-shadow: rgba(38, 50, 110, 0.08);
+
+  /* El acento en componentes RGB sueltos, para los sitios que necesitan
+     transparencia variable: resplandores del hero, sombras de botón y
+     etiquetas translúcidas. Antes eran doce `rgba(255, 105, 0, …)` escritos a
+     mano que ningún cambio de token alcanzaba, y al cambiar la paleta
+     quedaron como halos naranjas sobre un sitio turquesa. Aquí sí va el
+     turquesa vivo: son manchas de luz, nunca llevan texto encima. */
+  --acento-rgb: 10, 167, 184;
+
+  /* Nombres que usan las vistas y los componentes */
+  --azul: var(--color-primary-dark);
+  --azul-oscuro: #1a2350;                    /* sombra del azul, sin equivalente en la paleta */
+  --azul-tint: #eef1fb;
+  /* Tres acentos, y cuál usar depende del fondo, no del gusto:
+     · --acento        sobre fondo CLARO (texto, botones sólidos). 4.93:1
+     · --acento-claro  sobre fondo OSCURO (hero, pie, bloque de especialidad).
+                       Ahí manda el vivo: sobre azul oscuro da 5.22:1, y el
+                       medio se hundiría a 3.07:1. Cuanto más oscuro el fondo,
+                       más claro tiene que ser el texto.
+     · --acento-fuerte hover de superficies sólidas y texto sobre --acento-suave */
+  --acento: var(--color-primary-hover);
+  --acento-claro: var(--color-primary);
+  --acento-fuerte: var(--color-primary-deep);
+  --acento-suave: var(--color-bg-light);
+  --ink: var(--color-text-main);
+  --ink-soft: var(--color-text-secondary);
+  --line: var(--color-border);
+  --bg: var(--color-bg-light);
+  --surface: var(--color-white);
+  /* Verde WhatsApp: es de la marca ajena, no se toca. Aun así vive aquí en
+     los tres formatos que el sitio necesita, por lo mismo que el acento:
+     escrito a mano en cada componente, un cambio del verde no los alcanza.
+     · --wa       relleno sólido (botón de contacto, botón flotante)
+     · --wa-hover el mismo verde un escalón más oscuro, para el hover
+     · --wa-rgb   componentes sueltos, para los halos y el pulso translúcidos
+     Ninguno de los dos verdes admite texto blanco encima (1.98:1 y 2.30:1):
+     el botón de contacto lleva --azul-oscuro, que da 7.56:1 y 5.69:1. */
+  --wa: #25d366;
+  --wa-hover: #1eb757;
+  --wa-rgb: 37, 211, 102;
+  /* Rojo de error de formulario, documentado en DESIGN.md como parte del
+     componente Text Input. 5.43:1 sobre blanco. */
+  --error: #c0392b;
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+  --r-full: 999px;
+  --shadow: 0 8px 30px rgba(38, 50, 110, 0.08);
+  --shadow-lg: 0 16px 50px rgba(38, 50, 110, 0.14);
+  --wrap: 1140px;
+
+  /* Escala del cuerpo de sección, tomada del subtítulo del hero. Vive aquí
+     como token para que las secciones no se desincronicen entre sí. */
+  --texto-lead: clamp(1.05rem, 2vw, 1.22rem);
+  --lead-alto: 1.55;
+
+  /* Motion: una sola curva de salida en todo el sitio, sin rebote. */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 0.2s;
+  --dur: 0.4s;
+  --dur-slow: 0.7s;
+
+  /* ── Latido ──
+     El pulso es la firma del sitio. Una clínica veterinaria mide signos
+     vitales, así que lo que se mueve acá se mueve a un ritmo cardíaco de
+     verdad y no a un parpadeo cualquiera: 833ms es un latido a 72 por
+     minuto. Todo lo que late se cuenta en múltiplos de esta unidad —el
+     corazón del pie, el punto de "Abierto ahora", el destello del botón de
+     reserva, la línea del hero— así que comparten tempo aunque estén en
+     extremos opuestos de la página. */
+  --latido: 833ms;
+}
+
+/* Un latido no es un pulso simétrico. Son dos contracciones seguidas y
+   desiguales —el "lub-dub", primero el cierre de las válvulas
+   auriculoventriculares y después el de las sigmoideas— y luego una pausa
+   larga, que aquí es más de la mitad del ciclo. Esa asimetría es justo lo
+   que separa un corazón que late de un icono al que le hacen zoom.
+
+   Ojo con "mejorar" esto hacia una línea plana o un pulso que se apaga: en
+   un sitio veterinario un trazo que se aplana no se lee como minimalismo,
+   se lee como un paciente que se muere. Lo que late acá está siempre vivo. */
+@keyframes latido {
+  0%, 44%, 100% { transform: scale(1); }
+  8%            { transform: scale(1.16); }
+  20%           { transform: scale(1); }
+  32%           { transform: scale(1.08); }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: 'Open Sans', system-ui, -apple-system, sans-serif;
+  color: var(--ink);
+  background: var(--surface);
+  line-height: 1.6;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  /* `relative` + `isolate` para la textura de abajo: `isolate` crea contexto
+     de apilamiento propio, así el pseudo-elemento con z-index negativo queda
+     por encima del fondo blanco del body pero por debajo de todo el
+     contenido. Mismo recurso que .m-card en EquipoView.vue y .header. */
+  position: relative; isolation: isolate;
+}
+
+/* ── Textura de mascotas ──
+   El patrón ilustrado (perros, gatos, huellas) como papel de fondo de todo
+   el sitio, al 12%: se nota como textura, no como estampado. A opacidad
+   plena el texto caía encima de los dibujos y las páginas se leían como
+   ruido.
+   Va en un pseudo-elemento y no en `background` del body para poder bajarle
+   la opacidad sin arrastrar al contenido, que son hijos suyos.
+   `absolute` y no `fixed`: fijo, el patrón se queda quieto mientras la
+   página scrollea y se lee como una marca de agua pegada a la pantalla; en
+   absoluto acompaña al contenido, que es lo que hace un papel. */
+body::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background-image: url('/bg-patron.png');
+  background-size: 190px 190px;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+/* Headlines en Poppins (más personalidad, calidez geométrica); cuerpo en
+   Open Sans, limpia y pensada para lectura larga. Contraste de peso real
+   entre niveles, no "todo 700". */
+h1, h2, h3, h4 {
+  font-family: 'Poppins', 'Open Sans', system-ui, sans-serif;
+  line-height: 1.15;
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+h1 { font-weight: 700; letter-spacing: -0.02em; }
+p { margin: 0; }
+p.lead, .lead { text-wrap: pretty; }
+a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+
+button { font: inherit; cursor: pointer; border: none; background: none; }
+
+.wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 clamp(1.1rem, 4vw, 2rem); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5em;
+  padding: 0.8em 1.6em; border-radius: var(--r-full);
+  font-weight: 600; font-size: 0.98rem;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.btn-primary { background: var(--acento); color: #fff; box-shadow: 0 8px 22px rgba(var(--acento-rgb), 0.32); }
+.btn-primary:hover { background: var(--acento-fuerte); transform: translateY(-2px); box-shadow: 0 12px 28px rgba(var(--acento-rgb), 0.4); }
+.btn-outline { border: 2px solid #fff; color: #fff; }
+.btn-outline:hover { background: #fff; color: var(--azul); transform: translateY(-2px); }
+.btn:focus-visible { outline: 2px solid var(--acento); outline-offset: 3px; }
+
+.seccion { padding: clamp(3.5rem, 8vw, 6rem) 0; }
+
+/* Cabezal de sección: variante por defecto sin kicker uppercase-tracked
+   (ese patrón se repetía en cada sección del sitio — hoy es el primer tell
+   de "landing genérica"). Cada sección elige su propio tratamiento; este
+   es solo el fallback tipográfico compartido. */
+.seccion-titulo { margin-bottom: 3rem; }
+.seccion-titulo h2 { color: var(--azul); font-size: clamp(1.9rem, 4.4vw, 2.7rem); }
+.seccion-titulo p {
+  color: var(--ink-soft); max-width: 56ch; margin: 1rem 0 0;
+  font-size: var(--texto-lead); line-height: var(--lead-alto);
+}
+
+/* ── Titular tipo hero ──
+   Misma voz tipográfica que el h1 de la portada (Poppins 700, escala amplia,
+   interletrado cerrado) para los titulares que abren sección. La segunda
+   parte va en línea propia y en color, que es la firma del hero.
+   Escala un punto por debajo del h1 real: el hero sigue mandando. */
+/* Con el elemento en el selector para ganarle a `.seccion-titulo h2`, que
+   si no impone su propia escala por tener más especificidad. */
+h1.titulo-hero,
+h2.titulo-hero {
+  font-size: clamp(2.05rem, 4.9vw, 3.2rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+}
+/* Segunda línea del titular sobre fondo oscuro (los heros). Vive aquí y no
+   en el componente porque las páginas la pasan por slot: el contenido de un
+   slot pertenece al ámbito de quien lo pasa, así que un `style scoped` en
+   PageHero nunca lo alcanzaría. Usa el acento CLARO, que sobre azul oscuro
+   da 3.96:1; sobre fondo claro va .titulo-hero .enfasis, más oscuro. */
+.hero-enfasis { display: block; color: var(--acento-claro); margin-top: 0.15em; }
+
+.titulo-hero .enfasis {
+  display: block;
+  margin-top: 0.15em;
+  /* El acento fuerte y no el claro: sobre fondo claro, el turquesa vivo se
+     queda en 2.90:1 y el mínimo es 3:1. En el hero pasa al revés. */
+  color: var(--acento-fuerte);
+}
+/* Bajada del titular, con el mismo aire que .hero-sub. */
+.titulo-hero-sub {
+  font-size: var(--texto-lead);
+  color: var(--ink-soft);
+  margin-top: 1.15rem;
+  max-width: 52ch;
+  line-height: var(--lead-alto);
+}
+
+/* Reveal-on-scroll: opt-in vía [data-reveal], nunca oculta contenido por
+   defecto (si JS/IntersectionObserver no corre, todo sigue visible).
+   Desplazamiento sutil (10px, no 18px): el observer dispara con 300px de
+   anticipación (ver useReveal.js), así que el usuario casi nunca ve el
+   estado inicial — pero si scrollea muy rápido y llega a verlo, que sea
+   un detalle discreto, no un salto brusco ni una sección "vacía". */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+[data-reveal].is-visible { opacity: 1; transform: none; }
+
+/* ── Luz de revelado: opt-in vía [data-glow] ──
+   Se suma al revelado en vez de reemplazarlo: aquél anima el elemento
+   (opacidad y desplazamiento) y ésta vive en un pseudo-elemento, así que
+   no compiten por las mismas propiedades. Arranca cuando el elemento se
+   revela, heredando el escalonado que ya calcula useReveal.js, de modo
+   que la luz recorre la lista como una onda.
+
+   Es opt-in a propósito: puesta en cada sección por igual dejaría de ser
+   un efecto y pasaría a ser un tic. Va donde hay superficie que la
+   refleje (filas, tarjetas), no en párrafos ni títulos sueltos. */
+[data-glow] { position: relative; overflow: hidden; }
+[data-glow]::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg,
+    transparent 35%,
+    color-mix(in oklch, var(--acento) 20%, transparent) 50%,
+    transparent 65%);
+  transform: translateX(-120%);
+}
+/* Sirve tanto si [data-glow] es el propio elemento revelado como si
+   cuelga dentro de él. */
+[data-reveal][data-glow].is-visible::after,
+[data-reveal].is-visible [data-glow]::after {
+  /* Una sola pasada, de izquierda a derecha.
+     La curva no es la --ease compartida del sitio, que es de salida y
+     concentra el movimiento al principio: con ella la luz cruzaba en los
+     primeros 375ms de 1.5s y el resto lo pasaba parada fuera de cuadro, así
+     que el barrido se veía como un destello corto. Con una curva casi pareja
+     se ve recorrer la tarjeta entera durante todo su tiempo. */
+  animation: glow-onda 1.1s cubic-bezier(0.45, 0.05, 0.55, 0.95) both;
+  /* Un segundo de espera desde que la tarjeta se revela. Antes salía a los
+     160ms, encima de la propia entrada (que dura 0.4s), y las dos cosas se
+     leían como una sola. Separadas, primero la tarjeta se asienta y después
+     la luz la recorre: son dos tiempos, no uno confuso.
+     El escalonado se suma, así que la onda sigue recorriendo la lista.
+     `both` mantiene el gradiente fuera de cuadro durante la espera, de modo
+     que el retardo no deja ningún destello prematuro. */
+  animation-delay: calc(var(--reveal-delay, 0ms) + 1s);
+}
+/* El recorrido llega hasta ±110% y no ±120%: la luz deja de verse pasado el
+   100%, y ese 20% extra eran fotogramas gastados fuera de cuadro. */
+@keyframes glow-onda {
+  from { transform: translateX(-110%); }
+  to   { transform: translateX(110%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  [data-reveal] { opacity: 1; transform: none; transition: none; }
+  [data-glow]::after { content: none; animation: none; }
+  .btn, .btn-primary:hover, .btn-outline:hover { transition: none; transform: none; }
+}
+
+/* El script de reCAPTCHA (cargado solo en Contacto, ver recaptcha.js) inyecta
+   este badge flotante en el body. Google permite ocultarlo si el aviso legal
+   se muestra en otro lado — acá va junto al formulario, como texto propio
+   (`.recaptcha-aviso` en ContactoView.vue), no flotando sobre el resto del
+   sitio. */
+.grecaptcha-badge { visibility: hidden; }

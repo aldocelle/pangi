@@ -1,0 +1,28 @@
+# Base de datos de la demo, solo para uso local.
+#
+# Escucha únicamente en 127.0.0.1: nada fuera de este equipo puede conectarse.
+# Las claves de acá son de la demo local y no protegen nada real; en un
+# hosting se usan las que entregue el panel del hosting.
+services:
+  db:
+    image: mariadb:11.8
+    container_name: pangi-demo-db
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MARIADB_DATABASE: pangi_demo
+      MARIADB_USER: pangi
+      MARIADB_PASSWORD: pangi_local
+      MARIADB_ROOT_PASSWORD: pangi_root_local
+      TZ: UTC
+    ports:
+      - "127.0.0.1:3317:3306"
+    volumes:
+      - pangi_demo_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+volumes:
+  pangi_demo_db:

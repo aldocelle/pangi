@@ -1,0 +1,72 @@
+# Fallback del SPA del panel de la clínica.
+#
+# Vivía en `dist/`, que Vite BORRA en cada build — o sea que cualquier
+# despliegue posterior a una compilación lo dejaba fuera, y con él se caían
+# todas las rutas profundas del panel: /agenda, /ficha/:id, /caja, /ajustes.
+# Solo funcionaba la raíz.
+#
+# Vive en `public/` para que Vite lo copie a `dist/` en cada build y viaje con
+# el despliegue. Contenido idéntico al que estaba en producción.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?|png|jpe?g|svg|webp)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "index\.html$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# ── Cabeceras de seguridad ──────────────────────────────────────────────────
+#
+# El backend las manda desde agosto (main.py, `cabeceras_seguridad`), pero los
+# tres frontends no mandaban NINGUNA. Comprobado en producción el 06-sep-2026:
+# el panel publicado respondía 200 con una sola cabecera,
+# `content-security-policy: upgrade-insecure-requests`, que la pone el hosting
+# y no restringe absolutamente nada.
+#
+# Lo concreto que eso permitía: meter el panel de la clínica en un <iframe>
+# invisible dentro de otra página y engañar a alguien del equipo para que
+# hiciera clic en algo que no ve (clickjacking). Y sin HSTS, la primera visita
+# por http:// viaja en claro antes de que el 301 la mande a https.
+#
+# `frame-ancestors 'none'` y X-Frame-Options dicen lo mismo por duplicado a
+# propósito: la primera es la vigente, la segunda es la que entienden los
+# navegadores viejos.
+#
+# OJO CON LO QUE ESTA CSP **NO** TIENE, y es deliberado: no lleva `default-src`
+# ni `script-src`. Una CSP completa hay que probarla contra reCAPTCHA v3, el
+# botón de "Entrar con Google" y el <iframe> de Google Maps de la sección
+# Contacto — los tres cargan de terceros, y una directiva de más los rompe en
+# silencio, sin error visible. Eso es un cambio con prueba en vivo detrás, no
+# algo que se agregue a ciegas. Lo de acá es la parte que no puede romper nada.
+<IfModule mod_headers.c>
+  Header always set X-Frame-Options "DENY"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Content-Security-Policy "frame-ancestors 'none'"
+  Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+  # Un año, igual que la API. El sitio ya responde 301 de http a https en los
+  # cuatro dominios: esto solo evita que la PRIMERA petición viaje en claro.
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>
+
+# ── El paquete del despliegue no se descarga ────────────────────────────────
+#
+# El .zip se sube a la raíz del subdominio (la API de Hostinger no acepta otra
+# ruta) y no hay forma de borrarlo por MCP: sin esto queda público con el build
+# entero. Estaba aplicado a mano en el servidor el 13-sep, pero NO en este
+# archivo, así que el siguiente despliegue lo habría sobrescrito y reabierto.
+# Comprobar pidiendo la URL del zip: ~550 bytes de index.html, no megas (el
+# código sigue siendo 200 por el fallback SPA, así que el código engaña).
+<FilesMatch "\.(zip|tar|gz|bak|sql)$">
+  Require all denied
+</FilesMatch>

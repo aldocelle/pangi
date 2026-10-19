@@ -1,0 +1,376 @@
+/* ============================================
+   Panel de la clínica
+   ============================================ */
+:root {
+  /* Paleta alineada con el sitio público (website/src/assets/app.css):
+     marca = azul #26326e · acento = turquesa, no naranja.
+     Mismo mapeo que portal-reservas: --accent es el turquesa medio
+     (4.93:1 sobre blanco, pasa AA para texto y botones sólidos). */
+  --bg: #f7f8fc;
+  --surface: #ffffff;
+  --ink: #23262f;
+  --ink-soft: #5c6273;
+  --brand: #26326e;
+  --brand-strong: #1a2350;
+  --brand-ink: #26326e;
+  --brand-tint: #eef1fb;
+  --accent: #087c8a;
+  --accent-strong: #056773;
+  --accent-tint: #e6f7f9;
+  /* Tinte de HOVER, mas marcado que --accent-tint. No es un capricho de
+     diseno: --accent-tint contra el blanco de una tarjeta da **1.10**, y
+     contra la pagina (--bg) da **1.04**. En los sitios donde el fondo es la
+     UNICA senal del hover —la fila de una tabla, un resultado del buscador
+     global, una celda de la Agenda, el menu de Ajustes— eso es practicamente
+     invisible: el mismo problema que tenia el separador de las tablas, con el
+     mismo orden de magnitud. Este da 1.24 contra el blanco, y el texto encima
+     conserva 12.2 de contraste, o sea que al pasar el mouse la fila se lee
+     MEJOR, no peor. --accent-tint se queda para lo que ya trae otra senal
+     (un borde que cambia, un texto que se tine). */
+  --accent-hover: #cdedf2;
+  --accent-rgb: 8, 124, 138;        /* para sombras/halos con transparencia variable */
+  /* Las tintas de estado se oscurecieron el 06-sep-2026 porque sobre su propio
+     tinte NO pasaban, y ese par es exactamente como se usan: el badge de una
+     cita, de una venta, de un protocolo. Medido antes y despues:
+
+       --ok sobre --ok-tint          3.90  ->  5.24   (fallaba)
+       --danger sobre --danger-tint  4.51  ->  4.91   (pasaba por un pelo)
+
+     Se oscurecio la TINTA y no se aclaro el tinte: asi el badge conserva su
+     color de fondo —que es la senal que se reconoce de lejos, sin leer— y lo
+     que gana contraste es el texto. --ok ademas rendia 4.57 sobre blanco, otro
+     margen demasiado justo para el verde de "Completada". */
+  --danger: oklch(0.53 0.19 27);
+  --danger-tint: oklch(0.95 0.03 27);
+  --ok: oklch(0.48 0.13 150);
+  --ok-tint: oklch(0.94 0.05 150);
+  --warn-tint: oklch(0.95 0.06 85);
+  --warn-ink: oklch(0.5 0.1 75);   /* 5.22 sobre su tinte */
+  /* Azul informativo. Existia solo como `var(--info)` en dos vistas:
+     una variable que nadie definio nunca, asi que lo que se veia era siempre el
+     respaldo. Y ese respaldo daba 4.51 sobre su tinte, pasando por 0.01. Se
+     resuelve sin color nuevo: la marca ya es azul y da 10.55. */
+  --info: var(--brand-ink);
+  --info-tint: var(--brand-tint);
+  --line: #e7e9f0;
+  --line-strong: #d3d7e4;
+  /* Separador de fila de tabla y franja alterna. Van aparte de `--line` a
+     propósito: `--line` es el borde de una tarjeta, donde 1.21 de contraste
+     está bien porque solo insinúa un límite. Dentro de una tabla el separador
+     tiene que poder SEGUIRSE con la vista a lo largo de doce columnas, y para
+     eso 1.21 no alcanza. Medidos contra blanco: 1.59 y 1.08. */
+  --line-tabla: #c8cddd;
+  --fila-alterna: #f4f6fb;
+  --side-bg: #101a3d;                /* sidebar azul oscuro (gradiente) */
+  --side-bg-2: #16224d;
+  --side-ink: #c7cde3;               /* 10.7 sobre el sidebar */
+  --side-ink-soft: #8b93b8;          /* 5.1 en el extremo mas claro: pasa AA */
+  /* El turquesa de marca NO sirve sobre el sidebar: `--accent` (#087c8a) da
+     3.44 contra #101a3d y 3.11 contra #16224d, bajo el 4.5 que exige el texto
+     normal — y lo usaba el subtitulo de la marca, a 0.74rem. Mismo matiz y
+     misma saturacion, solo mas claro: 5.67 en el peor extremo. No reemplaza a
+     `--accent`, que sobre blanco esta bien; es su version para fondo oscuro. */
+  --accent-sobre-oscuro: #0badc1;
+
+  /* Tonos de sección del sidebar. Son para ORIENTARSE, no para decorar: con
+     16 entradas en cuatro grupos, el título en mayúsculas era la única pista
+     de dónde terminaba una sección y empezaba otra, y hay que leerlo para
+     saberlo. El color se reconoce antes de leer.
+
+     Reglas que los definen:
+     · Ninguno se acerca al turquesa --accent, que es de la SELECCIÓN ACTUAL.
+       Si un grupo fuera turquesa, el ítem activo se confundiría con su propio
+       grupo y se perdería la única señal de "dónde estoy".
+     · Los cuatro pasan 7:1 contra los dos extremos del degradado del sidebar
+       (#101a3d y #16224d), muy por encima del 4.5:1 que exige el texto chico.
+     · Configuración lleva menos croma a propósito: es lo que menos se usa, y
+       el color también ordena por importancia.
+     · El color NUNCA es la única señal: los títulos de grupo siguen ahí. */
+  --side-operacion: oklch(0.80 0.13 75);      /* ámbar: el trabajo del día */
+  --side-personas: oklch(0.78 0.12 12);       /* rosa: tutores y pacientes */
+  --side-ventas: oklch(0.80 0.13 150);        /* verde: la plata */
+  --side-config: oklch(0.76 0.08 285);        /* lavanda apagado: ajustes */
+
+  /* Los tres grupos DENTRO de Ajustes. Son un abanico alrededor del 285 que el
+     sistema ya le asignó a la configuración, no tres colores nuevos: la página
+     entera es lavanda y los grupos se separan moviéndose un poco a cada lado.
+     Tres tonos ajenos habrían competido con los del sidebar, que está justo al
+     lado y usa ámbar, rosa y verde para OTRA cosa.
+
+     Bastante más oscuros que los de arriba (0.50 contra 0.80) porque viven
+     sobre la página blanca y no sobre el azul marino de la barra: el mismo
+     valor que allá rinde 2:1 acá y el texto chico se vuelve ilegible. */
+  --aj-clinica: oklch(0.50 0.12 285);         /* lavanda: la clínica */
+  --aj-atencion: oklch(0.50 0.12 250);        /* azul: la atención */
+  --aj-equipo: oklch(0.50 0.12 325);          /* ciruela: el equipo */
+  /* ── Escala tipografica ──
+     Habia 24 tamanos distintos de letra en el panel, inventados vista por
+     vista: 0.66, 0.68, 0.7, 0.72, 0.74, 0.75, 0.76, 0.78, 0.79, 0.8, 0.82…
+     Nadie eligio esa escala; es el residuo de veinticinco archivos escritos
+     por separado. Dos consecuencias, y la segunda es la que importa:
+
+     · Cosas del mismo rango se ven de tamanos distintos sin que la diferencia
+       signifique nada, asi que el tamano deja de ser una senal de jerarquia.
+     · El piso quedo demasiado abajo. Un tercio de ese texto estaba bajo
+       0.8rem — 0.66rem son 10.6px — y no era decoracion: eran encabezados de
+       columna, etiquetas de dato y estados. Es una pantalla que alguien mira
+       ocho horas.
+
+     `--t-micro` es el PISO, no un tamano mas: nada que lleve informacion baja
+     de ahi. Los colores, en cambio, no eran el problema — estan todos
+     medidos y pasan AA con holgura (--ink 15.1, --ink-soft 6.1 sobre blanco).
+
+     Seis pasos, y ninguno es texto por debajo de --t-micro. De 1rem para arriba
+     la sustitucion se hizo A MANO y no por rango, porque ahi conviven dos cosas
+     distintas: los titulos, que si pertenecen a la escala, y los GLIFOS —el
+     emoji de una consulta, el chevron de una fila, la inicial en un avatar, la
+     "x" de cerrar un modal—, que se dimensionan para llenar su caja y no tienen
+     nada que ver con el ritmo del texto. Meter esos en la escala habria hecho
+     saltar iconos de tamano sin ninguna razon. */
+  --t-micro: 0.8rem;                 /* 12.8px — etiquetas, chips, estados */
+  --t-sm: 0.88rem;                   /* 14.1px — texto secundario */
+  --t-base: 0.95rem;                 /* 15.2px — filas de tabla, listados */
+  --t-lg: 1.05rem;                   /* 16.8px — h2/h3 de tarjeta, dato destacado */
+  --t-xl: 1.2rem;                    /* 19.2px — titulo de modal */
+  --t-2xl: 1.4rem;                   /* 22.4px — titulo de pagina, cifra grande */
+  --r-sm: 8px; --r-md: 12px; --r-lg: 18px; --r-xl: 24px; --r-full: 999px;
+  --shadow: 0 4px 14px rgba(38, 50, 110, 0.08), 0 2px 6px rgba(38, 50, 110, 0.05);
+  --shadow-lg: 0 18px 48px rgba(38, 50, 110, 0.16), 0 6px 16px rgba(38, 50, 110, 0.08);
+  /* 'Emoji Mono' va primero y solo cubre caracteres de emoji (public/fonts.css): los
+     emojis salen en una tinta, como el resto de los iconos del panel. Letras y
+     dígitos se quedan con Poppins. */
+  --font: 'Emoji Mono', 'Poppins', 'Inter', system-ui, sans-serif;
+  --z-modal-backdrop: 300; --z-modal: 310;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { line-height: 1.15; letter-spacing: -0.015em; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2.5px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5em;
+  font-weight: 600; font-size: var(--t-base);
+  padding: 0.5em 1.05em; border-radius: var(--r-full);
+  transition: background 0.2s, transform 0.25s cubic-bezier(0.22,1,0.36,1);
+}
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--brand); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--brand-strong); }
+.btn-accent { background: var(--accent); color: white; }
+.btn-accent:hover:not(:disabled) { background: var(--accent-strong); }
+.btn-ghost { border: 1.5px solid var(--line-strong); color: var(--ink); background: var(--surface); }
+.btn-ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-strong); background: var(--accent-tint); }
+.btn-danger { background: var(--danger-tint); color: var(--danger); }
+.btn-sm { font-size: var(--t-micro); padding: 0.36em 0.8em; }
+
+.field { display: flex; flex-direction: column; gap: 0.3rem; }
+.field label { font-weight: 600; font-size: var(--t-sm); }
+.input, .select, .textarea {
+  width: 100%; padding: 0.5em 0.75em;
+  background: var(--surface);
+  border: 1.5px solid var(--line-strong); border-radius: var(--r-md);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.input:focus, .select:focus, .textarea:focus {
+  outline: none; border-color: var(--brand);
+  box-shadow: 0 0 0 4px var(--brand-tint);
+}
+.textarea { resize: vertical; min-height: 70px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 1.1rem;
+}
+/* Panel más denso: usado por 18 de las 22 vistas, así que achicar estos
+   tokens compacta el panel entero sin tocar cada pantalla una por una. */
+.page { max-width: 1800px; margin: 0 auto; padding: 1.2rem clamp(1rem, 3vw, 1.6rem) 2.5rem; }
+.page-title { font-size: var(--t-2xl); margin-bottom: 0.25rem; }
+.page-sub { color: var(--ink-soft); margin-bottom: 1.1rem; }
+
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 0.2em 0.65em; border-radius: var(--r-full);
+  font-size: var(--t-micro); font-weight: 600;
+}
+.badge.Agendada { background: var(--warn-tint); color: var(--warn-ink); }
+.badge.Confirmada { background: var(--brand-tint); color: var(--brand-ink); }
+.badge.Completada { background: var(--ok-tint); color: var(--ok); }
+.badge.Cancelada { background: var(--danger-tint); color: var(--danger); }
+
+.tag {
+  display: inline-flex; align-items: center;
+  padding: 0.2em 0.65em; border-radius: var(--r-sm);
+  font-size: var(--t-micro); font-weight: 600;
+  background: var(--bg); border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+.tag.req { background: var(--warn-tint); color: var(--warn-ink); border-color: transparent; }
+.tag.hid { background: var(--danger-tint); color: var(--danger); border-color: transparent; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: var(--z-modal-backdrop);
+  background: oklch(0.2 0.02 150 / 0.45);
+  display: grid; place-items: center; padding: 1rem;
+}
+.modal {
+  z-index: var(--z-modal);
+  background: var(--surface); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 600px; max-height: 88vh; overflow-y: auto;
+  padding: 1.2rem;
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.9rem; }
+.modal-head h3 { font-size: var(--t-xl); }
+.modal-close { font-size: 1.2rem; color: var(--ink-soft); padding: 0.2rem 0.5rem; border-radius: var(--r-sm); }
+.modal-close:hover { background: var(--bg); color: var(--ink); }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.9rem; }
+
+.error-text { color: var(--danger); font-size: var(--t-sm); }
+.empty { text-align: center; color: var(--ink-soft); padding: 1.6rem 1rem; }
+
+/* ── Patrón de listado ──
+   Extraído de Pacientes, que es la referencia visual del panel: cabecera con
+   título y acción a la derecha, filtros, y una sola tarjeta con filas.
+   Cada vista define solo el ancho de sus columnas (`grid-template-columns`
+   sobre .t-row); todo lo demás se hereda de aquí para que no vuelvan a
+   divergir. */
+.head-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 1rem; flex-wrap: wrap; margin-bottom: 0.4rem;
+}
+
+/* Una tarjeta para toda la lista, no una por fila: con una tarjeta por
+   elemento el ojo cuenta contenedores en vez de leer datos. */
+/* ── Tablas ────────────────────────────────────────────────────────────────
+   Las usan diez vistas, así que lo que se cambie acá se nota en todo el panel.
+   Ajustado por legibilidad el 06-sep-2026, con los contrastes medidos y no a
+   ojo. Lo que estaba y por qué se cambió:
+
+   · El separador era `--line` (#e7e9f0), que contra el blanco da **1.21** de
+     contraste: prácticamente invisible. En una tabla ancha eso significa que
+     el ojo pierde la fila a mitad de camino y hay que volver a empezar. Ahora
+     usa `--line-tabla` (1.59), que se ve sin ensuciar.
+
+   · Sumado a eso, la franja alterna. Es lo que más ayuda a seguir una fila
+     larga, y va MUY tenue (1.08 sobre blanco) para no competir con el texto:
+     encima de ella el texto principal conserva 14.2 de contraste y el
+     secundario 5.7, los dos sobre el mínimo.
+
+   · El texto de fila subió de 0.9rem a 0.95rem y el alto de fila de ~33px a
+     ~38px. No es estética: es una pantalla que se mira todo el día.
+
+   · Los encabezados pasan a 0.84rem y peso 700. Eran 0.8rem en gris suave, y
+     con doce columnas cuesta saber cuál se está leyendo. */
+.tabla { padding: 0.3rem 0.8rem; overflow-x: auto; }
+.t-row {
+  display: grid;
+  gap: 0.7rem; align-items: center;
+  padding: 0.72rem 0.5rem;
+  border-bottom: 1px solid var(--line-tabla);
+  font-size: var(--t-base);
+}
+.t-row:last-child { border-bottom: none; }
+/* La franja va en las filas de datos, nunca en el encabezado ni en la fila
+   sobre la que está el cursor: si no, el resaltado de hover se pierde justo en
+   la fila que se está mirando. */
+.t-row:not(.t-head):nth-of-type(even) { background: var(--fila-alterna); }
+.t-head {
+  font-size: var(--t-micro); font-weight: 700; color: var(--ink-soft);
+  border-bottom-color: var(--line-strong);
+}
+.t-row-link { cursor: pointer; transition: background 0.12s; }
+.t-row-link:hover, .t-row-link:focus-visible { background: var(--accent-hover); }
+.t-row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* ── Tablas de verdad (`<table>`) ──
+   No todo listado del panel es la rejilla de arriba: Estadisticas, Pedidos y
+   Protocolos usan un `<table>` real, porque son datos tabulares con encabezado
+   y no filas clicables. Esos tres se escribieron por separado y quedaron con
+   EL MISMO defecto que tenian las rejillas —separador `--line` (1.21 de
+   contraste, invisible) y encabezado a 0.75rem— pero no se arreglaron con
+   aquello, porque no comparten ni una clase. De ahi este bloque: la misma
+   decision, en el mismo archivo, para las dos formas de tabla que existen.
+
+   `.scroll-x` es obligatorio alrededor: un `<table>` no se encoge, y sin el
+   contenedor la pagina entera se desplaza de lado en pantallas angostas. */
+.tabla-datos { width: 100%; border-collapse: collapse; font-size: var(--t-base); }
+.tabla-datos th {
+  text-align: left; font-size: var(--t-micro); font-weight: 700;
+  color: var(--ink-soft); padding: 0.6rem 0.55rem;
+  border-bottom: 1px solid var(--line-strong);
+  white-space: nowrap;
+}
+.tabla-datos td { padding: 0.65rem 0.55rem; border-bottom: 1px solid var(--line-tabla); }
+.tabla-datos tbody tr:last-child td { border-bottom: none; }
+.tabla-datos tbody tr:nth-child(even) { background: var(--fila-alterna); }
+
+.scroll-x { overflow-x: auto; }
+
+/* Acciones compactas al final de la fila. Apiladas y a lo ancho pesan más
+   que el dato al que acompañan. */
+.acciones { display: flex; gap: 0.4rem; justify-content: flex-end; flex-wrap: wrap; }
+/* Accion destructiva. Sale de la paleta y no de un rojo suelto: el #dc2626 que
+   habia daba 4.41 sobre el #fef2f2 de su propio hover — el texto se aclaraba
+   justo al pasar el mouse por encima. Estaba ademas copiado tal cual en
+   Inventario, Proveedores y Tareas, y los estilos scoped ganan por
+   especificidad: arreglarlo aca no las habria alcanzado. */
+.peligro { color: var(--danger); }
+.peligro:hover { background: var(--danger-tint); border-color: var(--danger-tint); }
+
+/* Emblema redondo a la izquierda del nombre: ancla la fila y da el punto de
+   entrada visual. */
+.fila-ic {
+  flex: none; width: 28px; height: 28px;
+  display: grid; place-items: center;
+  background: var(--brand-tint); border-radius: 50%;
+  font-size: 1.05rem; font-weight: 700; color: var(--brand);
+}
+.fila-nombre { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.fila-nombre strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 720px) {
+  /* En pantallas angostas la rejilla se convierte en bloques apilados. */
+  .t-row { grid-template-columns: 1fr !important; gap: 0.35rem; }
+  .t-head { display: none; }
+  .acciones { justify-content: flex-start; margin-top: 0.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-row-link { transition: none; }
+}
+
+/* ── Títulos de sección con fondo gradiente ──
+   Usado en FichaView, aplicable a cualquier h2/h3 que sea cabecera de bloque. */
+.section-title {
+  background: linear-gradient(135deg, var(--side-bg), var(--side-bg-2));
+  color: #fff;
+  margin: -1.1rem -1.1rem 1rem; padding: 0.7rem 0.9rem;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  font-size: var(--t-base); font-weight: 600;
+}
+
+/* Contenedor para títulos de sección (si el h2 es directo en el card). */
+.section-head {
+  background: linear-gradient(135deg, var(--side-bg), var(--side-bg-2));
+  margin: -1.1rem -1.1rem 1rem; padding: 0.7rem 0.9rem;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  display: flex; justify-content: space-between; align-items: center;
+}
+/* Dentro de .section-head el título NO es otra franja: es solo el texto. Sin
+   esto se apilaban dos fondos con margen negativo y el título asomaba como una
+   pestaña por encima de la franja (ficha del paciente, oct-2026). */
+.section-head .section-title {
+  background: none; margin: 0; padding: 0; border-radius: 0;
+}

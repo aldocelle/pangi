@@ -1,0 +1,8 @@
+# Este archivo viaja en el BUILD a propósito.
+#
+# El portal de una demo o de un servidor de pruebas no puede aparecer en
+# Google: alguien que llegue buscando la clínica agendaría en una base que
+# nadie mira. El día que el portal se abra al público, se cambia acá, con
+# historial en git — no a mano en el servidor.
+User-agent: *
+Disallow: /

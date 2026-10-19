@@ -1,0 +1,137 @@
+# NOTA: este archivo vivía solo en `dist/`, que Vite BORRA en cada build.
+# Vive acá para que viaje con cada despliegue. Gobierna TODO public_html,
+# incluidos /reservas y /panel, que traen el suyo propio.
+
+# .htaccess de public_html — SIN WordPress
+#
+# Reemplaza al que había, que era el que generaba WordPress. Guardar antes una
+# copia del actual: este archivo gobierna TODO lo que cuelga de public_html,
+# incluidos los tres frontends, y un error acá tumba el sitio entero.
+#
+# Además de sacar WordPress, arregla un bug que ya existía: las rutas
+# profundas del sitio público (/contacto, /servicios, /equipo) no llegaban al
+# SPA. Caían en el index.php de WordPress y devolvían su página de 404.
+
+DirectoryIndex index.html
+
+# `DirectorySlash Off` es lo que ARREGLA de verdad las rutas que chocan con una
+# carpeta. Medido en producción el 06-sep-2026:
+#
+#     /servicios  /equipo  /petshop            301 → 403   ← carpetas reales
+#     /contacto  /terminos  /privacidad …      200
+#
+# Las tres rotas son exactamente las tres que tienen una carpeta de imágenes con
+# ese nombre. Quien llegaba por Google, por un enlace compartido o por un
+# marcador veía un 403; navegar dentro del sitio funcionaba, así que el fallo
+# era invisible desde adentro.
+#
+# La nota de abajo diagnosticó bien la causa —el choque de nombres— pero atacó
+# el síntoma equivocado: quitar el `!-d` no basta, porque el 301 no lo emite
+# mod_rewrite sino **mod_dir**. `DirectorySlash` agrega la barra final a
+# cualquier directorio real ANTES de que estas reglas puedan servir el SPA, y
+# `/servicios/` no tiene index → 403.
+#
+# Apagarlo es seguro acá: los listados de directorio ya están prohibidos (por
+# eso el error era 403 y no un índice de archivos), y las imágenes se piden
+# siempre con extensión (`/servicios/foo.jpg`), así que las atrapa la regla de
+# «archivo que existe» de más abajo.
+DirectorySlash Off
+
+# Cinturón: si algún día se habilitaran los listados en el servidor, una carpeta
+# sin index no debe quedar navegable.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # `reservas/` y `panel/` traen su propio .htaccess con su propio fallback.
+  # Se los deja pasar sin tocar para no competir con esas reglas.
+  RewriteRule ^(reservas|panel)(/|$) - [L]
+
+  # Un archivo que existe de verdad se sirve tal cual: imágenes, css, js.
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+
+  # Todo lo demás que no tenga extensión es una ruta del SPA.
+  #
+  # Ojo con lo que NO está acá: la condición `!-d` que traía WordPress. Las
+  # carpetas de imágenes `servicios/`, `equipo/` y `petshop/` se llaman igual
+  # que rutas del sitio, así que con `!-d` esas rutas nunca llegaban al SPA
+  # —respondían 301 a la carpeta— y por eso hoy están rotas. Filtrando por
+  # extensión en vez de por directorio, `/servicios` entra al SPA y
+  # `/servicios/dermatologia.jpg` se sigue sirviendo como archivo, porque la
+  # regla de arriba ya lo atrapó.
+  RewriteCond %{REQUEST_URI} !\.[a-zA-Z0-9]{2,5}$
+  RewriteRule ^ /index.html [L]
+</IfModule>
+
+# Caché. Venía en el .htaccess QUE ESTABA EN EL SERVIDOR y no en este archivo,
+# que es como se descubrió que los dos habían divergido: el del servidor era una
+# versión anterior —conservaba el `!-d`, o sea que el arreglo de las rutas nunca
+# se había desplegado— pero tenía esto, que acá faltaba. Subir este archivo tal
+# cual habría arreglado las rutas y borrado la caché en el mismo movimiento.
+#
+# Los assets llevan hash en el nombre (`index-DtvB2-sK.js`), así que un año es
+# seguro: si el contenido cambia, cambia el nombre. `index.html` es lo contrario
+# —nombre fijo, contenido variable— y por eso va sin caché: es el archivo que
+# dice cuáles son los assets vigentes, y uno cacheado deja al navegador pidiendo
+# bundles que ya no existen.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?|png|jpe?g|svg|webp)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "index\.html$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# Mismo criterio de caché que ya usan reservas/ y panel/: los assets llevan
+# hash en el nombre y son inmutables; el index.html nunca se cachea, porque es
+# el que apunta a la versión nueva después de cada despliegue.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?|png|jpe?g|svg|webp|ico)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "index\.html$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# Sin listados de directorio: `servicios/`, `equipo/` y `petshop/` son
+# carpetas de imágenes, y sin esto un visitante puede enumerarlas.
+Options -Indexes
+
+# ── Cabeceras de seguridad ──────────────────────────────────────────────────
+#
+# El backend las manda desde agosto (main.py, `cabeceras_seguridad`), pero los
+# tres frontends no mandaban NINGUNA. Comprobado en producción el 06-sep-2026:
+# el panel publicado respondía 200 con una sola cabecera,
+# `content-security-policy: upgrade-insecure-requests`, que la pone el hosting
+# y no restringe absolutamente nada.
+#
+# Lo concreto que eso permitía: meter el panel de la clínica en un <iframe>
+# invisible dentro de otra página y engañar a alguien del equipo para que
+# hiciera clic en algo que no ve (clickjacking). Y sin HSTS, la primera visita
+# por http:// viaja en claro antes de que el 301 la mande a https.
+#
+# `frame-ancestors 'none'` y X-Frame-Options dicen lo mismo por duplicado a
+# propósito: la primera es la vigente, la segunda es la que entienden los
+# navegadores viejos.
+#
+# OJO CON LO QUE ESTA CSP **NO** TIENE, y es deliberado: no lleva `default-src`
+# ni `script-src`. Una CSP completa hay que probarla contra reCAPTCHA v3, el
+# botón de "Entrar con Google" y el <iframe> de Google Maps de la sección
+# Contacto — los tres cargan de terceros, y una directiva de más los rompe en
+# silencio, sin error visible. Eso es un cambio con prueba en vivo detrás, no
+# algo que se agregue a ciegas. Lo de acá es la parte que no puede romper nada.
+<IfModule mod_headers.c>
+  Header always set X-Frame-Options "DENY"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Content-Security-Policy "frame-ancestors 'none'"
+  Header always set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+  # Un año, igual que la API. El sitio ya responde 301 de http a https en los
+  # cuatro dominios: esto solo evita que la PRIMERA petición viaje en claro.
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+</IfModule>

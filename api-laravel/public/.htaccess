@@ -1,0 +1,72 @@
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    RewriteEngine On
+
+    # Handle Authorization Header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Handle X-XSRF-Token Header
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # ── La redirección de barra final va DESACTIVADA a propósito ─────────
+    #
+    # Laravel trae acá su bloque «Redirect Trailing Slashes If Not A Folder»,
+    # que manda un 301 de /mascotas/ a /mascotas. Tiene sentido en un sitio web
+    # —una URL canónica por página— y es dañino en una API:
+    #
+    #   · Los frontends llaman a `GET|POST /mascotas/` CON la barra (§7 del
+    #     CLAUDE.md). Los bundles ya publicados también, y no se pueden cambiar
+    #     sin recompilar los tres.
+    #   · Un 301 sobre un POST es el problema de verdad: la mayoría de los
+    #     clientes lo reemiten como GET. Crear una mascota desde el portal se
+    #     convertiría en un listado y no guardaría nada, sin ningún error a la
+    #     vista. Un 307/308 conservaría el método; un 301 no.
+    #   · Python nunca redirigió: FastAPI resuelve /mascotas/ directo con 200.
+    #     Dejarlo activo es una diferencia de comportamiento entre los dos
+    #     backends que no aparece en local, porque `artisan serve` no lee este
+    #     archivo — solo se ve en el servidor. Lo encontró el arnés en el
+    #     primer despliegue real (03-sep-2026), corriendo el modo A contra
+    #     lab.ejemplo.cl en vez de contra la máquina.
+    #
+    # Si una actualización de Laravel vuelve a meter el bloque, hay que sacarlo
+    # otra vez. `verificar` lo comprueba.
+
+    # Send Requests To Front Controller...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# ── El tope de subida, por la vía que este servidor sí lee ──────────────
+#
+# `public/.user.ini` fija lo mismo y está en el document root del laboratorio
+# desde el primer despliegue, pero **no surte efecto**: medido el 04-sep-2026
+# con un archivo de 20 MB, que llega hasta el controlador (400 de Laravel) en
+# vez de morir en PHP (413). La API del panel lo confirma desde el otro lado —
+# el vhost sigue en `upload_max_filesize = 1536M`.
+#
+# La causa probable es el SAPI: la cabecera del servidor dice `LiteSpeed`, y
+# `.user.ini` es una característica pensada para CGI/FastCGI. Lo que LiteSpeed
+# lee con seguridad son las directivas `php_value` de un `.htaccess`, así que
+# la defensa se pone acá además de allá. Las dos dicen lo mismo; sobra la que
+# no se aplique, no estorba.
+#
+# El `<IfModule>` no es adorno: sobre un Apache sin mod_php un `php_value`
+# suelto devuelve **500 en todo el sitio**, y este archivo viaja al servidor sin
+# que nadie lo pruebe antes.
+#
+# Solo van las dos directivas que son PHP_INI_PERDIR. `max_file_uploads` es
+# PHP_INI_SYSTEM: no se puede bajar ni desde acá ni desde `.user.ini` —donde
+# está escrito y es inerte—, solo desde la configuración del servidor.
+#
+# Quién comprueba que esto funcionó: `modo_b_orden_examen.py`, que contra un
+# despliegue exige 413 y hoy está rojo.
+<IfModule LiteSpeed>
+    php_value upload_max_filesize 12M
+    php_value post_max_size 13M
+</IfModule>
