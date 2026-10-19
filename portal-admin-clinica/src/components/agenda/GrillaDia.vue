@@ -268,11 +268,16 @@ defineExpose({ yDe: (min) => y(min), rango });
 }
 
 /* ── Encabezado ── */
+/* Capas: las citas van en 2–3 (3 al pasar el mouse). El encabezado y la
+   columna de horas van por ENCIMA (5), y la esquina, donde se cruzan, más
+   arriba todavía (6). Con capas iguales gana lo que viene después en el HTML:
+   al desplazar la grilla hacia el lado, las citas de la primera columna se
+   pintaban sobre las horas y las tapaban (visto en un iPhone, 19-oct-2026). */
 .esquina, .cab-col {
-  position: sticky; top: 0; z-index: 3;
+  position: sticky; top: 0; z-index: 5;
   background: var(--surface); border-bottom: 1px solid var(--line-strong);
 }
-.esquina { left: 0; z-index: 4; }
+.esquina { left: 0; z-index: 6; }
 .cab-col {
   display: flex; align-items: center; gap: 0.55rem; min-width: 0;
   padding: 0 0.7rem; border-left: 1px solid var(--line);
@@ -285,7 +290,7 @@ defineExpose({ yDe: (min) => y(min), rango });
 
 /* ── Horas ── */
 .horas {
-  position: sticky; left: 0; z-index: 2;
+  position: sticky; left: 0; z-index: 5;
   grid-row: 2; grid-column: 1;
   background: var(--surface); border-right: 1px solid var(--line-strong);
 }
@@ -371,6 +376,9 @@ defineExpose({ yDe: (min) => y(min), rango });
   border-top: 2px solid var(--danger); pointer-events: none;
 }
 
+/* En pantallas táctiles no hay «pasar el mouse»: el «+ 15:30» quedaba pegado
+   donde se tocó. El toque igual abre las opciones de esa hora. */
+@media (hover: none) { .fantasma { display: none; } }
 @media (prefers-reduced-motion: reduce) { .cita { transition: none; } }
 @media print {
   .esquina, .cab-col, .horas { position: static; }

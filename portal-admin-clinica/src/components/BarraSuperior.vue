@@ -147,6 +147,16 @@ onUnmounted(() => {
 });
 watch(() => route.fullPath, () => { abierto.value = null; cajon.value = false; });
 
+/* En el cajón, cada sección es una pestaña desplegable y solo una queda
+   abierta: con todo a la vista eran 30 enlaces seguidos y había que recorrer
+   la lista para encontrar el propio. Al abrir el cajón se despliega la sección
+   de la pantalla en que se está. */
+const grupoCajon = ref(null);
+watch(cajon, (v) => { if (v) grupoCajon.value = menus.value.find((m) => !m.to && esActivo(m))?.id || null; });
+function alternarGrupo(id) {
+  grupoCajon.value = grupoCajon.value === id ? null : id;
+}
+
 function iniciales(nombre) {
   const p = (nombre || 'V').split(' ').filter(Boolean);
   return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase();
@@ -223,7 +233,7 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
     </div>
   </header>
 
-  <!-- Cajón (pantallas angostas): los mismos menús, uno bajo el otro. -->
+  <!-- Cajón (pantallas angostas): los mismos menús, como pestañas desplegables. -->
   <div v-if="cajon" class="cajon-fondo" @click="cajon = false"></div>
   <aside class="cajon" :class="{ abierto: cajon }" :aria-hidden="!cajon" aria-label="Menú">
     <div class="cajon-cab">
@@ -235,16 +245,27 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
     <nav class="cajon-nav" aria-label="Navegación principal">
       <template v-for="m in menus" :key="m.id">
         <RouterLink v-if="m.to" :to="m.to" class="cajon-link solo">{{ m.label }}</RouterLink>
-        <section v-else-if="!m.admin" class="cajon-grupo">
-          <h2 class="cajon-titulo">{{ m.label }}</h2>
-          <RouterLink v-for="i in m.items" :key="i.to" :to="i.to" class="cajon-link">{{ i.label }}</RouterLink>
+        <section v-else class="cajon-grupo">
+          <button
+            type="button" class="cajon-pestana" :class="{ actual: esActivo(m) }"
+            :aria-expanded="grupoCajon === m.id" :aria-controls="`cajon-panel-${m.id}`"
+            @click="alternarGrupo(m.id)"
+          >
+            {{ m.label }}
+            <svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path :d="ICONOS.chevron" /></svg>
+          </button>
+          <div v-show="grupoCajon === m.id" :id="`cajon-panel-${m.id}`" class="cajon-items">
+            <template v-if="!m.admin">
+              <RouterLink v-for="i in m.items" :key="i.to" :to="i.to" class="cajon-link">{{ i.label }}</RouterLink>
+            </template>
+            <template v-else>
+              <template v-for="g in gruposAdmin" :key="g.titulo">
+                <h3 class="cajon-subtitulo">{{ g.titulo }}</h3>
+                <RouterLink v-for="i in g.items" :key="i.to" :to="i.to" class="cajon-link">{{ i.label }}</RouterLink>
+              </template>
+            </template>
+          </div>
         </section>
-        <template v-else>
-          <section v-for="g in gruposAdmin" :key="g.titulo" class="cajon-grupo">
-            <h2 class="cajon-titulo">{{ g.titulo }}</h2>
-            <RouterLink v-for="i in g.items" :key="i.to" :to="i.to" class="cajon-link">{{ i.label }}</RouterLink>
-          </section>
-        </template>
       </template>
     </nav>
   </aside>
@@ -345,9 +366,21 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
 }
 .cajon.abierto { transform: none; visibility: visible; transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1); }
 .cajon-cab { display: flex; align-items: center; justify-content: space-between; height: var(--alto-barra); padding: 0 0.7rem 0 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-.cajon-nav { flex: 1; overflow-y: auto; padding: 0.6rem 0.6rem 1.2rem; display: flex; flex-direction: column; gap: 0.7rem; }
+.cajon-nav { flex: 1; overflow-y: auto; padding: 0.6rem 0.6rem 1.2rem; display: flex; flex-direction: column; gap: 0.15rem; }
 .cajon-grupo { display: flex; flex-direction: column; }
-.cajon-titulo { font-size: var(--t-micro); font-weight: 700; color: var(--side-ink-soft); padding: 0.2rem 0.7rem 0.3rem; }
+.cajon-pestana {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  padding: 0.55rem 0.7rem; border-radius: var(--r-sm); text-align: left;
+  font-size: var(--t-base); font-weight: 600; color: var(--side-ink);
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+}
+.cajon-pestana:hover, .cajon-pestana[aria-expanded="true"] { background: rgba(255, 255, 255, 0.06); color: #fff; }
+.cajon-pestana.actual { color: #fff; }
+.cajon-pestana .chev { opacity: 0.75; transition: transform 0.18s ease-out; }
+.cajon-pestana[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.cajon-pestana:focus-visible { outline-color: #fff; }
+.cajon-items { display: flex; flex-direction: column; padding: 0.15rem 0 0.4rem 0.6rem; }
+.cajon-subtitulo { font-size: var(--t-micro); font-weight: 700; color: var(--side-ink-soft); padding: 0.45rem 0.7rem 0.2rem; }
 .cajon-link { padding: 0.48rem 0.7rem; border-radius: var(--r-sm); font-size: var(--t-base); color: var(--side-ink); }
 .cajon-link:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .cajon-link.router-link-exact-active { background: var(--accent); color: #fff; font-weight: 600; }
@@ -362,7 +395,7 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
 }
 @media (prefers-reduced-motion: reduce) {
   .panel { animation: none; }
-  .cajon, .cajon.abierto, .chev, .menu-btn, .barra-ic { transition: none; }
+  .cajon, .cajon.abierto, .chev, .menu-btn, .barra-ic, .cajon-pestana { transition: none; }
 }
 @media print {
   .barra, .cajon, .cajon-fondo { display: none; }
