@@ -370,7 +370,12 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
 .cajon-grupo { display: flex; flex-direction: column; border-radius: var(--r-md); transition: background 0.18s ease-out; }
 .cajon-grupo.abierto { background: var(--side-desplegado); margin: 0.2rem 0; }
 .cajon-grupo.abierto .cajon-pestana { background: transparent; }
-.cajon-grupo.abierto .cajon-subtitulo { color: var(--side-ink-soft-desplegado); }
+/* Los subtítulos de Administración van en una franja del azul de la barra:
+   dentro del bloque claro separan sus grupos (La clínica, La atención…). */
+.cajon-grupo.abierto .cajon-subtitulo {
+  color: var(--side-ink-soft-desplegado); background: var(--side-bg);
+  border-radius: var(--r-sm); margin: 0.35rem 0 0.15rem; padding: 0.3rem 0.7rem;
+}
 .cajon-pestana {
   display: flex; align-items: center; justify-content: space-between; width: 100%;
   padding: 0.55rem 0.7rem; border-radius: var(--r-sm); text-align: left;
@@ -382,7 +387,7 @@ const rolVisible = computed(() => (auth.user?.rol === 'admin' ? 'Administrador' 
 .cajon-pestana .chev { opacity: 0.75; transition: transform 0.18s ease-out; }
 .cajon-pestana[aria-expanded="true"] .chev { transform: rotate(180deg); }
 .cajon-pestana:focus-visible { outline-color: #fff; }
-.cajon-items { display: flex; flex-direction: column; padding: 0.15rem 0 0.4rem 0.6rem; }
+.cajon-items { display: flex; flex-direction: column; padding: 0.15rem 0.45rem 0.45rem 0.6rem; }
 .cajon-subtitulo { font-size: var(--t-micro); font-weight: 700; color: var(--side-ink-soft); padding: 0.45rem 0.7rem 0.2rem; }
 .cajon-link { padding: 0.48rem 0.7rem; border-radius: var(--r-sm); font-size: var(--t-base); color: var(--side-ink); }
 .cajon-link:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
